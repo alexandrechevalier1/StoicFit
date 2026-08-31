@@ -12,6 +12,8 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
+import { useThemeColors } from '../theme/useThemeColors';
+import RestTimerButton from '../components/RestTimerButton';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'ExercisesList'>;
@@ -23,19 +25,15 @@ export default function ExercisesScreen({ route, navigation }: Props) {
       .find((p) => p.id === programId)
       ?.seances.find((s) => s.id === seanceId)
   );
-  const addExercise = useProgramStore((state) => state.addExercise);
   const removeExercise = useProgramStore((state) => state.removeExercise);
   const updateExercise = useProgramStore((state) => state.updateExercise);
+  const colors = useThemeColors();
   const [isEditing, setIsEditing] = useState(false);
 
   const exercises = seance?.exercises ?? [];
 
   const handleAddExercise = () => {
-    addExercise(programId, seanceId, {
-      id: Date.now().toString(),
-      name: 'Nouvel exercice',
-      sets: [],
-    });
+    navigation.navigate('ExerciseCatalog', { programId, seanceId });
   };
 
   const handlePickImage = async (exerciseId: string) => {
@@ -63,29 +61,34 @@ export default function ExercisesScreen({ route, navigation }: Props) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Text style={styles.backButton}>{'‹ Retour'}</Text>
+          <Text style={[styles.backButton, { color: colors.primary }]}>{'‹ Retour'}</Text>
         </Pressable>
-        <Pressable onPress={() => setIsEditing((v) => !v)} hitSlop={12}>
-          <Text style={styles.editButton}>{isEditing ? 'Terminé' : 'Modifier'}</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <RestTimerButton />
+          <Pressable onPress={() => setIsEditing((v) => !v)} hitSlop={12}>
+            <Text style={[styles.editButton, { color: colors.primary }]}>
+              {isEditing ? 'Terminé' : 'Modifier'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.titleRow}>
         <View>
-          <Text style={styles.title}>Exercices</Text>
-          {seance && <Text style={styles.seanceSubtitle}>{seance.name}</Text>}
+          <Text style={[styles.title, { color: colors.text }]}>Exercices</Text>
+          {seance && <Text style={[styles.seanceSubtitle, { color: colors.subtleText }]}>{seance.name}</Text>}
         </View>
-        <Pressable onPress={handleAddExercise} style={styles.addButton} hitSlop={12}>
+        <Pressable onPress={handleAddExercise} style={[styles.addButton, { backgroundColor: colors.primary }]} hitSlop={12}>
           <Text style={styles.addButtonText}>+</Text>
         </Pressable>
       </View>
 
       <View style={styles.listContainer}>
       {exercises.length === 0 && !isEditing ? (
-        <Text style={styles.empty}>Aucun exercice pour le moment.</Text>
+        <Text style={[styles.empty, { color: colors.subtleText }]}>Aucun exercice pour le moment.</Text>
       ) : (
         <FlatList
           data={exercises}
@@ -106,7 +109,7 @@ export default function ExercisesScreen({ route, navigation }: Props) {
               <Pressable
                 onPress={() => handlePickImage(item.id)}
                 disabled={!isEditing}
-                style={styles.thumbnail}
+                style={[styles.thumbnail, { backgroundColor: colors.card }]}
               >
                 {item.imageUri ? (
                   <Image source={{ uri: item.imageUri }} style={styles.thumbnailImage} />
@@ -118,36 +121,38 @@ export default function ExercisesScreen({ route, navigation }: Props) {
               <View style={styles.itemTextContainer}>
                 {isEditing ? (
                   <TextInput
-                    style={[styles.itemText, styles.itemTextInput]}
+                    style={[styles.itemText, styles.itemTextInput, { color: colors.text, borderBottomColor: colors.border }]}
                     value={item.name}
                     onChangeText={(text) =>
                       updateExercise(programId, seanceId, item.id, { name: text })
                     }
                     placeholder="Nom de l'exercice"
+                    placeholderTextColor={colors.subtleText}
                   />
                 ) : (
-                  <Text style={styles.itemText}>{item.name}</Text>
+                  <Text style={[styles.itemText, { color: colors.text }]}>{item.name}</Text>
                 )}
 
                 {isEditing ? (
                   <TextInput
-                    style={[styles.itemSubtitle, styles.itemTextInput]}
+                    style={[styles.itemSubtitle, styles.itemTextInput, { color: colors.subtleText, borderBottomColor: colors.border }]}
                     value={item.subtitle}
                     onChangeText={(text) =>
                       updateExercise(programId, seanceId, item.id, { subtitle: text })
                     }
                     placeholder="Sous-titre (ex: 4 séries)"
+                    placeholderTextColor={colors.subtleText}
                   />
                 ) : (
                   item.subtitle ? (
-                    <Text style={styles.itemSubtitle}>{item.subtitle}</Text>
+                    <Text style={[styles.itemSubtitle, { color: colors.subtleText }]}>{item.subtitle}</Text>
                   ) : null
                 )}
               </View>
 
               {isEditing && (
                 <Pressable onPress={() => removeExercise(programId, seanceId, item.id)} hitSlop={12}>
-                  <Text style={styles.deleteButton}>Supprimer</Text>
+                  <Text style={[styles.deleteButton, { color: colors.danger }]}>Supprimer</Text>
                 </Pressable>
               )}
             </Pressable>
@@ -168,6 +173,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   backButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   titleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

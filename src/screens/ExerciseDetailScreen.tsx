@@ -15,8 +15,10 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
+import { useThemeColors } from '../theme/useThemeColors';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 import NumericKeypad from '../components/NumericKeypad';
+import RestTimerButton from '../components/RestTimerButton';
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'ExerciseDetail'>;
 
@@ -30,6 +32,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
   );
   const updateExercise = useProgramStore((state) => state.updateExercise);
   const addSet = useProgramStore((state) => state.addSet);
+  const colors = useThemeColors();
   const [isEditing, setIsEditing] = useState(false);
   const [isAddSetModalVisible, setIsAddSetModalVisible] = useState(false);
   const [repsValue, setRepsValue] = useState('');
@@ -94,21 +97,26 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
   ).padStart(2, '0')}`;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Text style={styles.backButton}>{'‹ Retour'}</Text>
+          <Text style={[styles.backButton, { color: colors.primary }]}>{'‹ Retour'}</Text>
         </Pressable>
-        <Pressable onPress={() => setIsEditing((v) => !v)} hitSlop={12}>
-          <Text style={styles.editButton}>{isEditing ? 'Terminé' : 'Modifier'}</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <RestTimerButton />
+          <Pressable onPress={() => setIsEditing((v) => !v)} hitSlop={12}>
+            <Text style={[styles.editButton, { color: colors.primary }]}>
+              {isEditing ? 'Terminé' : 'Modifier'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.titleRow}>
         <Pressable
           onPress={handlePickImage}
           disabled={!isEditing}
-          style={styles.thumbnail}
+          style={[styles.thumbnail, { backgroundColor: colors.card }]}
         >
           {exercise?.imageUri ? (
             <Image source={{ uri: exercise.imageUri }} style={styles.thumbnailImage} />
@@ -120,21 +128,22 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
         <View style={styles.itemTextContainer}>
           {isEditing ? (
             <TextInput
-              style={[styles.title, styles.itemTextInput]}
+              style={[styles.title, styles.itemTextInput, { color: colors.text, borderBottomColor: colors.border }]}
               value={exercise?.name}
               onChangeText={(text) =>
                 updateExercise(programId, seanceId, exerciseId, { name: text })
               }
               placeholder="Nom de l'exercice"
+              placeholderTextColor={colors.subtleText}
             />
           ) : (
-            <Text style={styles.title}>{exercise?.name}</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{exercise?.name}</Text>
           )}
         </View>
 
         <Pressable
           onPress={() => setIsAddSetModalVisible(true)}
-          style={styles.addButton}
+          style={[styles.addButton, { backgroundColor: colors.primary }]}
           hitSlop={12}
         >
           <Text style={styles.addButtonText}>+</Text>
@@ -143,20 +152,21 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
 
       {isEditing ? (
         <TextInput
-          style={[styles.subtitle, styles.itemTextInput]}
+          style={[styles.subtitle, styles.itemTextInput, { color: colors.subtleText, borderBottomColor: colors.border }]}
           value={exercise?.subtitle}
           onChangeText={(text) =>
             updateExercise(programId, seanceId, exerciseId, { subtitle: text })
           }
           placeholder="Sous-titre (ex: 4 séries)"
+          placeholderTextColor={colors.subtleText}
         />
       ) : (
-        exercise?.subtitle ? <Text style={styles.subtitle}>{exercise.subtitle}</Text> : null
+        exercise?.subtitle ? <Text style={[styles.subtitle, { color: colors.subtleText }]}>{exercise.subtitle}</Text> : null
       )}
 
       {todaySets.length > 0 && (
         <>
-          <View style={styles.recapBanner}>
+          <View style={[styles.recapBanner, { backgroundColor: colors.primary }]}>
             <Text style={styles.recapDate}>{todayLabel}</Text>
             <View style={styles.recapTotalsContainer}>
               <Text style={styles.recapText}>
@@ -170,7 +180,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
             keyExtractor={(item) => item.id}
             style={styles.setsList}
             renderItem={({ item, index }) => (
-              <Text style={styles.setLine}>
+              <Text style={[styles.setLine, { color: colors.text }]}>
                 {`Série ${String(index + 1).padStart(2, ' ')}   ${String(item.reps).padStart(
                   3,
                   ' '
@@ -188,13 +198,13 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
         statusBarTranslucent
         onRequestClose={closeAddSetModal}
       >
-        <Pressable style={styles.modalOverlay} onPress={closeAddSetModal}>
-          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={closeAddSetModal}>
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.background }]} onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalHeaderRow}>
               <Pressable onPress={closeAddSetModal} hitSlop={12}>
-                <Text style={styles.modalCloseButton}>{'✕'}</Text>
+                <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
               </Pressable>
-              <Text style={styles.modalTitle}>Séries</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Séries</Text>
               <View style={styles.modalHeaderSpacer} />
             </View>
 
@@ -203,8 +213,8 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
               showsVerticalScrollIndicator={false}
             >
               <View style={styles.modalCounterRow}>
-                <Text style={styles.modalSectionLabel}>Nombre de reps</Text>
-                <Text style={styles.modalCounterValue}>{repsValue || '0'}</Text>
+                <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Nombre de reps</Text>
+                <Text style={[styles.modalCounterValue, { color: colors.text }]}>{repsValue || '0'}</Text>
               </View>
               <NumericKeypad
                 value={repsValue}
@@ -213,8 +223,8 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
               />
 
               <View style={styles.modalCounterRow}>
-                <Text style={styles.modalSectionLabel}>Charge</Text>
-                <Text style={styles.modalCounterValue}>{weightValue || '0'} kg</Text>
+                <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Charge</Text>
+                <Text style={[styles.modalCounterValue, { color: colors.text }]}>{weightValue || '0'} kg</Text>
               </View>
               <NumericKeypad
                 value={weightValue}
@@ -222,7 +232,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
                 onDeletePress={() => setWeightValue((v) => v.slice(0, -1))}
               />
 
-              <Pressable style={styles.modalValidateButton} onPress={handleValidateSet}>
+              <Pressable style={[styles.modalValidateButton, { backgroundColor: colors.primary }]} onPress={handleValidateSet}>
                 <Text style={styles.modalValidateButtonText}>Valider la série</Text>
               </Pressable>
             </ScrollView>
@@ -242,6 +252,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   backButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   editButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
   titleRow: {
     flexDirection: 'row',

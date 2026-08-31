@@ -11,4 +11,5 @@ export interface NutritionEntry {
   id: string;
   date: string; // ISO date string
   meals: Meal[];
+  waterMl: number;
 }

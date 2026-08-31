@@ -17,7 +17,10 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.thalos.fitnesstracker"
+      "package": "com.thalos.fitnesstracker",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -29,6 +32,11 @@
           "photosPermission": "L'application a besoin d'accéder à vos photos pour illustrer vos programmes."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c7c24c91-1545-489c-9d15-c7141bb5707b"
+      }
+    }
   }
 }

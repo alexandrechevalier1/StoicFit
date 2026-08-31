@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View, Pressable } from 'react-native';
+import { useThemeColors } from '../theme/useThemeColors';
 
 type NumericKeypadProps = {
   value: string;
@@ -14,6 +15,8 @@ const KEYS = [
 ];
 
 export default function NumericKeypad({ onDigitPress, onDeletePress }: NumericKeypadProps) {
+  const colors = useThemeColors();
+
   return (
     <View style={styles.container}>
       {KEYS.map((row, rowIndex) => (
@@ -26,7 +29,7 @@ export default function NumericKeypad({ onDigitPress, onDeletePress }: NumericKe
               return (
                 <Pressable
                   key={keyIndex}
-                  style={styles.key}
+                  style={[styles.key, { backgroundColor: colors.card }]}
                   onPress={onDeletePress}
                   hitSlop={8}
                 >
@@ -37,11 +40,11 @@ export default function NumericKeypad({ onDigitPress, onDeletePress }: NumericKe
             return (
               <Pressable
                 key={keyIndex}
-                style={styles.key}
+                style={[styles.key, { backgroundColor: colors.card }]}
                 onPress={() => onDigitPress(key)}
                 hitSlop={8}
               >
-                <Text style={styles.keyText}>{key}</Text>
+                <Text style={[styles.keyText, { color: colors.text }]}>{key}</Text>
               </Pressable>
             );
           })}
@@ -63,10 +66,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
     height: 44,
     borderRadius: 10,
-    backgroundColor: '#F2F2F7',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  keyText: { fontSize: 20, color: '#000', fontWeight: '600' },
+  keyText: { fontSize: 20, fontWeight: '600' },
   deleteKeyText: { fontSize: 18, color: '#FF3B30', fontWeight: '600' },
 });

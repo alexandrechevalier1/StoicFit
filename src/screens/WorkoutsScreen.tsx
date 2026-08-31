@@ -12,6 +12,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
+import { useThemeColors } from '../theme/useThemeColors';
 import type { Program } from '../models';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 
@@ -51,6 +52,7 @@ export default function WorkoutsScreen({ navigation }: Props) {
   const addProgram = useProgramStore((state) => state.addProgram);
   const removeProgram = useProgramStore((state) => state.removeProgram);
   const updateProgram = useProgramStore((state) => state.updateProgram);
+  const colors = useThemeColors();
   const [isEditing, setIsEditing] = useState(false);
 
   const stats = useMemo(() => computeRecentStats(programs), [programs]);
@@ -93,24 +95,30 @@ export default function WorkoutsScreen({ navigation }: Props) {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.pageTitle}>Sports</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Text style={[styles.pageTitle, { color: colors.text }]}>Sports</Text>
 
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Mes Programmes</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Mes Programmes</Text>
         <View style={styles.headerActions}>
-          <Pressable onPress={handleAddProgram} style={styles.addButton} hitSlop={12}>
+          <Pressable
+            onPress={handleAddProgram}
+            style={[styles.addButton, { backgroundColor: colors.primary }]}
+            hitSlop={12}
+          >
             <Text style={styles.addButtonText}>+</Text>
           </Pressable>
           <Pressable onPress={() => setIsEditing((v) => !v)} hitSlop={12}>
-            <Text style={styles.editButton}>{isEditing ? 'Terminé' : 'Modifier'}</Text>
+            <Text style={[styles.editButton, { color: colors.primary }]}>
+              {isEditing ? 'Terminé' : 'Modifier'}
+            </Text>
           </Pressable>
         </View>
       </View>
 
       <View style={styles.listContainer}>
       {programs.length === 0 && !isEditing ? (
-        <Text style={styles.empty}>Aucun programme pour le moment.</Text>
+        <Text style={[styles.empty, { color: colors.subtleText }]}>Aucun programme pour le moment.</Text>
       ) : (
         <FlatList
           data={programs}
@@ -120,7 +128,7 @@ export default function WorkoutsScreen({ navigation }: Props) {
               <Pressable
                 onPress={() => handlePickImage(item.id)}
                 disabled={!isEditing}
-                style={styles.thumbnail}
+                style={[styles.thumbnail, { backgroundColor: colors.card }]}
               >
                 {item.imageUri ? (
                   <Image source={{ uri: item.imageUri }} style={styles.thumbnailImage} />
@@ -132,32 +140,34 @@ export default function WorkoutsScreen({ navigation }: Props) {
               <View style={styles.itemTextContainer}>
                 {isEditing ? (
                   <TextInput
-                    style={[styles.itemText, styles.itemTextInput]}
+                    style={[styles.itemText, styles.itemTextInput, { color: colors.text, borderBottomColor: colors.border }]}
                     value={item.name}
                     onChangeText={(text) => updateProgram(item.id, { name: text })}
                     placeholder="Nom du programme"
+                    placeholderTextColor={colors.subtleText}
                   />
                 ) : (
-                  <Text style={styles.itemText}>{item.name}</Text>
+                  <Text style={[styles.itemText, { color: colors.text }]}>{item.name}</Text>
                 )}
 
                 {isEditing ? (
                   <TextInput
-                    style={[styles.itemSubtitle, styles.itemTextInput]}
+                    style={[styles.itemSubtitle, styles.itemTextInput, { color: colors.subtleText, borderBottomColor: colors.border }]}
                     value={item.subtitle}
                     onChangeText={(text) => updateProgram(item.id, { subtitle: text })}
                     placeholder="Sous-titre (ex: 3 exercices)"
+                    placeholderTextColor={colors.subtleText}
                   />
                 ) : (
                   item.subtitle ? (
-                    <Text style={styles.itemSubtitle}>{item.subtitle}</Text>
+                    <Text style={[styles.itemSubtitle, { color: colors.subtleText }]}>{item.subtitle}</Text>
                   ) : null
                 )}
               </View>
 
               {isEditing && (
                 <Pressable onPress={() => removeProgram(item.id)} hitSlop={12}>
-                  <Text style={styles.deleteButton}>Supprimer</Text>
+                  <Text style={[styles.deleteButton, { color: colors.danger }]}>Supprimer</Text>
                 </Pressable>
               )}
             </Pressable>
@@ -166,19 +176,19 @@ export default function WorkoutsScreen({ navigation }: Props) {
       )}
       </View>
 
-      <Text style={[styles.title, styles.progressTitle]}>Mes progrès</Text>
+      <Text style={[styles.title, styles.progressTitle, { color: colors.text }]}>Mes progrès</Text>
       {stats.seanceCount === 0 ? (
-        <Text style={styles.empty}>Pas encore de données de progression.</Text>
+        <Text style={[styles.empty, { color: colors.subtleText }]}>Pas encore de données de progression.</Text>
       ) : (
-        <View style={styles.progressCard}>
-          <Text style={styles.progressLine}>
+        <View style={[styles.progressCard, { backgroundColor: colors.card }]}>
+          <Text style={[styles.progressLine, { color: colors.text }]}>
             {stats.seanceCount} dernière(s) séance(s) enregistrée(s)
           </Text>
-          <Text style={styles.progressLine}>
+          <Text style={[styles.progressLine, { color: colors.text }]}>
             Volume total soulevé : {stats.totalVolumeKg} kg
           </Text>
           {stats.lastSeanceDate && (
-            <Text style={styles.progressLine}>
+            <Text style={[styles.progressLine, { color: colors.text }]}>
               Dernière séance : {new Date(stats.lastSeanceDate).toLocaleDateString()}
             </Text>
           )}

@@ -7,6 +7,7 @@ interface NutritionStore {
   removeEntry: (entryId: string) => void;
   addMeal: (entryId: string, meal: Meal) => void;
   removeMeal: (entryId: string, mealId: string) => void;
+  addWater: (entryId: string, amountMl: number) => void;
   getEntryByDate: (date: string) => NutritionEntry | undefined;
 }
 
@@ -34,6 +35,13 @@ export const useNutritionStore = create<NutritionStore>((set, get) => ({
         e.id === entryId
           ? { ...e, meals: e.meals.filter((m) => m.id !== mealId) }
           : e
+      ),
+    })),
+
+  addWater: (entryId, amountMl) =>
+    set((state) => ({
+      entries: state.entries.map((e) =>
+        e.id === entryId ? { ...e, waterMl: e.waterMl + amountMl } : e
       ),
     })),
 
