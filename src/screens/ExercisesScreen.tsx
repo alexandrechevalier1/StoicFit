@@ -160,6 +160,7 @@ export default function ExercisesScreen({ route, navigation }: Props) {
         />
       )}
       </View>
+
     </View>
   );
 }

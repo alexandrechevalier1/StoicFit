@@ -2,23 +2,16 @@ import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, Image, Pressable, TextInput, FlatList, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useProgramStore } from '../store/programStore';
-import { useNutritionStore } from '../store/nutritionStore';
+import { useNutritionStorage } from '../hooks/useNutritionStorage';
 import { useProfileStore } from '../store/profileStore';
 import { useThemeStore } from '../store/themeStore';
 import { useThemeColors } from '../theme/useThemeColors';
 import ProfileOnboardingSheet from '../components/ProfileOnboardingSheet';
-import { calculateNutritionTargets } from '../utils/nutritionCalculator';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function isWithinLastDays(dateIso: string, days: number): boolean {
-  const diff = Date.now() - new Date(dateIso).getTime();
-  return diff >= 0 && diff <= days * DAY_MS;
-}
+import { getLocalDateKey } from '../utils/nutritionDate';
 
 export default function ProfileScreen() {
   const programs = useProgramStore((state) => state.programs);
-  const nutritionEntries = useNutritionStore((state) => state.entries);
+  const { goals, logsByDate, getWeeklySummary } = useNutritionStorage();
   const profile = useProfileStore((state) => state.profile);
   const displayName = useProfileStore((state) => state.displayName);
   const avatarUri = useProfileStore((state) => state.avatarUri);
@@ -29,8 +22,6 @@ export default function ProfileScreen() {
   const toggleDarkMode = useThemeStore((state) => state.toggleDarkMode);
   const colors = useThemeColors();
   const [isHealthFormVisible, setIsHealthFormVisible] = useState(false);
-
-  const targets = profile ? calculateNutritionTargets(profile) : null;
 
   const handlePickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -54,6 +45,11 @@ export default function ProfileScreen() {
     }
   };
 
+  const isWithinLastDays = (dateIso: string, days: number): boolean => {
+    const diff = Date.now() - new Date(dateIso).getTime();
+    return diff >= 0 && diff <= days * 24 * 60 * 60 * 1000;
+  };
+
   const weeklyWorkoutStats = useMemo(() => {
     const setsThisWeek = programs.flatMap((p) =>
       p.seances.flatMap((s) =>
@@ -70,19 +66,15 @@ export default function ProfileScreen() {
   }, [programs]);
 
   const weeklyNutritionStats = useMemo(() => {
-    const entriesThisWeek = nutritionEntries.filter((e) => isWithinLastDays(e.date, 7));
-    const daysLogged = entriesThisWeek.length || 1;
-    const totalCalories = entriesThisWeek.reduce(
-      (sum, e) => sum + e.meals.reduce((mSum, m) => mSum + m.calories, 0),
-      0
-    );
-    const totalWaterMl = entriesThisWeek.reduce((sum, e) => sum + e.waterMl, 0);
+    const summary = getWeeklySummary(getLocalDateKey());
+    const daysLogged = summary.days.filter((day) => day.totals.itemsCount > 0).length;
+
     return {
-      avgCalories: Math.round(totalCalories / daysLogged),
-      avgWaterMl: Math.round(totalWaterMl / daysLogged),
-      daysLogged: entriesThisWeek.length,
+      avgCalories: summary.averages.calories,
+      avgWaterMl: summary.averages.waterMl,
+      daysLogged,
     };
-  }, [nutritionEntries]);
+  }, [getWeeklySummary, goals, logsByDate]);
 
   const personalRecords = useMemo(() => {
     const bestByExercise = new Map<
@@ -175,7 +167,7 @@ export default function ProfileScreen() {
               {weeklyNutritionStats.avgCalories}
             </Text>
             <Text style={[styles.statLabel, { color: colors.subtleText }]}>
-              kcal/j{targets ? ` (obj. ${targets.calories})` : ''}
+              kcal/j (obj. {goals.calories})
             </Text>
           </View>
           <View style={styles.statItem}>

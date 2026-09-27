@@ -17,6 +17,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
 import { useThemeColors } from '../theme/useThemeColors';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
+import type { Set as ExerciseSet } from '../models';
 import NumericKeypad from '../components/NumericKeypad';
 import RestTimerButton from '../components/RestTimerButton';
 
@@ -32,9 +33,16 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
   );
   const updateExercise = useProgramStore((state) => state.updateExercise);
   const addSet = useProgramStore((state) => state.addSet);
+  const updateSet = useProgramStore((state) => state.updateSet);
+  const removeSet = useProgramStore((state) => state.removeSet);
   const colors = useThemeColors();
   const [isEditing, setIsEditing] = useState(false);
   const [isAddSetModalVisible, setIsAddSetModalVisible] = useState(false);
+  const [isEditSetModalVisible, setIsEditSetModalVisible] = useState(false);
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
+  const [editDateValue, setEditDateValue] = useState('');
+  const [editRepsValue, setEditRepsValue] = useState('');
+  const [editWeightValue, setEditWeightValue] = useState('');
   const [repsValue, setRepsValue] = useState('');
   const [weightValue, setWeightValue] = useState('');
 
@@ -68,6 +76,14 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
     setWeightValue('');
   };
 
+  const closeEditSetModal = () => {
+    setIsEditSetModalVisible(false);
+    setSelectedSetId(null);
+    setEditDateValue('');
+    setEditRepsValue('');
+    setEditWeightValue('');
+  };
+
   const handleValidateSet = () => {
     addSet(programId, seanceId, exerciseId, {
       id: Date.now().toString(),
@@ -79,6 +95,82 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
     closeAddSetModal();
   };
 
+  const toLocalDateInput = (isoDate: string) => {
+    const date = new Date(isoDate);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const toIsoFromLocalDateInput = (value: string): string | null => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) {
+      return null;
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const localDate = new Date(year, month - 1, day, 12, 0, 0, 0);
+
+    if (
+      localDate.getFullYear() !== year ||
+      localDate.getMonth() !== month - 1 ||
+      localDate.getDate() !== day
+    ) {
+      return null;
+    }
+
+    return localDate.toISOString();
+  };
+
+  const openEditSetModal = (setItem: ExerciseSet) => {
+    setSelectedSetId(setItem.id);
+    setEditDateValue(toLocalDateInput(setItem.date));
+    setEditRepsValue(String(setItem.reps));
+    setEditWeightValue(String(setItem.weightKg));
+    setIsEditSetModalVisible(true);
+  };
+
+  const handleSaveSetEdition = () => {
+    if (!selectedSetId) {
+      return;
+    }
+
+    const nextDateIso = toIsoFromLocalDateInput(editDateValue);
+    if (!nextDateIso) {
+      Alert.alert('Date invalide', 'Utilisez le format YYYY-MM-DD.');
+      return;
+    }
+
+    updateSet(programId, seanceId, exerciseId, selectedSetId, {
+      reps: Number(editRepsValue) || 0,
+      weightKg: Number(editWeightValue) || 0,
+      date: nextDateIso,
+    });
+
+    closeEditSetModal();
+  };
+
+  const handleDeleteSet = () => {
+    if (!selectedSetId) {
+      return;
+    }
+
+    Alert.alert('Supprimer la serie', 'Cette serie sera supprimee definitivement.', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer',
+        style: 'destructive',
+        onPress: () => {
+          removeSet(programId, seanceId, exerciseId, selectedSetId);
+          closeEditSetModal();
+        },
+      },
+    ]);
+  };
+
   const isSameDay = (isoDate: string, reference: Date) => {
     const d = new Date(isoDate);
     return (
@@ -88,13 +180,49 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
     );
   };
 
-  const today = new Date();
-  const todaySets = (exercise?.sets ?? []).filter((s) => isSameDay(s.date, today));
-  const todayTotalReps = todaySets.reduce((sum, s) => sum + s.reps, 0);
-  const todayTotalVolume = todaySets.reduce((sum, s) => sum + s.reps * s.weightKg, 0);
-  const todayLabel = `${String(today.getDate()).padStart(2, '0')}/${String(
-    today.getMonth() + 1
-  ).padStart(2, '0')}`;
+  const getDateKey = (isoDate: string) => {
+    const d = new Date(isoDate);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const formatDateKey = (dateKey: string) => {
+    const [year, month, day] = dateKey.split('-');
+    return `${day}/${month}/${year}`;
+  };
+
+  const groupedSetsMap = new Map<
+    string,
+    { dateKey: string; sets: ExerciseSet[]; totalReps: number; totalVolume: number }
+  >();
+
+  for (const setItem of exercise?.sets ?? []) {
+    const dateKey = getDateKey(setItem.date);
+    const existing = groupedSetsMap.get(dateKey);
+
+    if (!existing) {
+      groupedSetsMap.set(dateKey, {
+        dateKey,
+        sets: [setItem],
+        totalReps: setItem.reps,
+        totalVolume: setItem.reps * setItem.weightKg,
+      });
+      continue;
+    }
+
+    existing.sets.push(setItem);
+    existing.totalReps += setItem.reps;
+    existing.totalVolume += setItem.reps * setItem.weightKg;
+  }
+
+  const setsByDate = [...groupedSetsMap.values()]
+    .map((group) => ({
+      ...group,
+      sets: [...group.sets].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    }))
+    .sort((a, b) => (a.dateKey < b.dateKey ? 1 : a.dateKey > b.dateKey ? -1 : 0));
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -164,32 +292,117 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
         exercise?.subtitle ? <Text style={[styles.subtitle, { color: colors.subtleText }]}>{exercise.subtitle}</Text> : null
       )}
 
-      {todaySets.length > 0 && (
+      {setsByDate.length > 0 && (
         <>
-          <View style={[styles.recapBanner, { backgroundColor: colors.primary }]}>
-            <Text style={styles.recapDate}>{todayLabel}</Text>
-            <View style={styles.recapTotalsContainer}>
-              <Text style={styles.recapText}>
-                total {todayTotalReps} reps {todayTotalVolume} Kg
-              </Text>
-            </View>
-          </View>
+          {setsByDate.map((group) => (
+            <View key={group.dateKey} style={styles.dateGroupContainer}>
+              <View style={[styles.recapBanner, { backgroundColor: colors.primary }]}>
+                <Text style={styles.recapDate}>{formatDateKey(group.dateKey)}</Text>
+                <View style={styles.recapTotalsContainer}>
+                  <Text style={styles.recapText}>
+                    total {group.totalReps} reps {group.totalVolume} Kg
+                  </Text>
+                </View>
+              </View>
 
-          <FlatList
-            data={todaySets}
-            keyExtractor={(item) => item.id}
-            style={styles.setsList}
-            renderItem={({ item, index }) => (
-              <Text style={[styles.setLine, { color: colors.text }]}>
-                {`Série ${String(index + 1).padStart(2, ' ')}   ${String(item.reps).padStart(
-                  3,
-                  ' '
-                )} X ${item.weightKg.toFixed(2).replace('.', ',').padStart(5, ' ')} Kg`}
-              </Text>
-            )}
-          />
+              <FlatList
+                data={group.sets}
+                keyExtractor={(item) => item.id}
+                style={styles.setsList}
+                renderItem={({ item, index }) => (
+                  <Pressable
+                    disabled={!isEditing}
+                    onPress={() => openEditSetModal(item)}
+                    style={({ pressed }) => [
+                      styles.setRow,
+                      isEditing && styles.editableSetRow,
+                      isEditing && pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Text style={[styles.setLine, { color: colors.text }]}>
+                      {`Série ${String(index + 1).padStart(2, ' ')}   ${String(item.reps).padStart(
+                        3,
+                        ' '
+                      )} X ${item.weightKg.toFixed(2).replace('.', ',').padStart(5, ' ')} Kg`}
+                    </Text>
+                    {isEditing ? (
+                      <Text style={[styles.editSetHintText, { color: colors.primary }]}>modifier</Text>
+                    ) : null}
+                  </Pressable>
+                )}
+              />
+            </View>
+          ))}
         </>
       )}
+
+      <Modal
+        visible={isEditSetModalVisible}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={closeEditSetModal}
+      >
+        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={closeEditSetModal}>
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.background }]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHeaderRow}>
+              <Pressable onPress={closeEditSetModal} hitSlop={12}>
+                <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
+              </Pressable>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Modifier le log</Text>
+              <View style={styles.modalHeaderSpacer} />
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+              <View style={styles.editFieldGroup}>
+                <Text style={[styles.editFieldLabel, { color: colors.subtleText }]}>Date (YYYY-MM-DD)</Text>
+                <TextInput
+                  style={[styles.editFieldInput, { color: colors.text, borderColor: colors.border }]}
+                  value={editDateValue}
+                  onChangeText={setEditDateValue}
+                  placeholder="2026-09-10"
+                  placeholderTextColor={colors.subtleText}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={styles.modalCounterRow}>
+                <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Nombre de reps</Text>
+                <Text style={[styles.modalCounterValue, { color: colors.text }]}>{editRepsValue || '0'}</Text>
+              </View>
+              <NumericKeypad
+                value={editRepsValue}
+                onDigitPress={(digit) => setEditRepsValue((v) => v + digit)}
+                onDeletePress={() => setEditRepsValue((v) => v.slice(0, -1))}
+              />
+
+              <View style={styles.modalCounterRow}>
+                <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Charge</Text>
+                <Text style={[styles.modalCounterValue, { color: colors.text }]}>{editWeightValue || '0'} kg</Text>
+              </View>
+              <NumericKeypad
+                value={editWeightValue}
+                onDigitPress={(digit) => setEditWeightValue((v) => v + digit)}
+                onDeletePress={() => setEditWeightValue((v) => v.slice(0, -1))}
+              />
+
+              <Pressable
+                style={[styles.modalValidateButton, { backgroundColor: colors.primary }]}
+                onPress={handleSaveSetEdition}
+              >
+                <Text style={styles.modalValidateButtonText}>Enregistrer les modifications</Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.modalDeleteButton, { borderColor: colors.danger }]}
+                onPress={handleDeleteSet}
+              >
+                <Text style={[styles.modalDeleteButtonText, { color: colors.danger }]}>Supprimer la serie</Text>
+              </Pressable>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={isAddSetModalVisible}
@@ -274,6 +487,16 @@ const styles = StyleSheet.create({
   itemTextContainer: { flex: 1 },
   title: { fontSize: 24, fontWeight: 'bold' },
   subtitle: { fontSize: 14, color: '#888' },
+  setRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  editSetHintText: { fontSize: 12, fontWeight: '700' },
+  editableSetRow: {
+    borderRadius: 8,
+  },
   recapBanner: {
     backgroundColor: '#007AFF',
     borderRadius: 10,
@@ -286,6 +509,7 @@ const styles = StyleSheet.create({
   recapDate: { fontSize: 14, fontWeight: '600', color: '#fff' },
   recapTotalsContainer: { flex: 1, alignItems: 'center' },
   recapText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  dateGroupContainer: { marginBottom: 14 },
   setsList: { marginTop: 12 },
   setLine: {
     fontSize: 15,
@@ -336,6 +560,15 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: 'bold' },
   modalHeaderSpacer: { width: 20 },
   modalScrollContent: { paddingBottom: 24 },
+  editFieldGroup: { marginTop: 4, marginBottom: 10 },
+  editFieldLabel: { fontSize: 13, marginBottom: 6 },
+  editFieldInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+  },
   modalCounterRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -356,4 +589,12 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   modalValidateButtonText: { fontSize: 16, color: '#fff', fontWeight: '600' },
+  modalDeleteButton: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  modalDeleteButtonText: { fontSize: 15, fontWeight: '700' },
 });

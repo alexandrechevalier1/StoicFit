@@ -6,6 +6,7 @@ import SeancesScreen from '../screens/SeancesScreen';
 import ExercisesScreen from '../screens/ExercisesScreen';
 import ExerciseDetailScreen from '../screens/ExerciseDetailScreen';
 import ExerciseCatalogScreen from '../screens/ExerciseCatalogScreen';
+import AnalyticsScreen from '../screens/AnalyticsScreen';
 import NutritionScreen from '../screens/NutritionScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import { useThemeStore } from '../store/themeStore';
@@ -19,6 +20,7 @@ export type RootTabParamList = {
 
 export type SeancesStackParamList = {
   ProgramsList: undefined;
+  Analytics: undefined;
   SeancesList: { programId: string };
   ExerciseDetail: { programId: string; seanceId: string; exerciseId: string };
   ExercisesList: { programId: string; seanceId: string };
@@ -32,6 +34,7 @@ function SeancesStackNavigator() {
   return (
     <SeancesStack.Navigator screenOptions={{ headerShown: false }}>
       <SeancesStack.Screen name="ProgramsList" component={WorkoutsScreen} />
+      <SeancesStack.Screen name="Analytics" component={AnalyticsScreen} />
       <SeancesStack.Screen name="SeancesList" component={SeancesScreen} />
       <SeancesStack.Screen name="ExerciseDetail" component={ExerciseDetailScreen} />
       <SeancesStack.Screen name="ExercisesList" component={ExercisesScreen} />

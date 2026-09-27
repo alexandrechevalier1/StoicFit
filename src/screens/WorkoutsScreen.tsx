@@ -13,35 +13,78 @@ import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
 import { useThemeColors } from '../theme/useThemeColors';
-import type { Program } from '../models';
+import type { CompletedSeance } from '../models';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 
 // Nombre de dernières séances prises en compte pour le récap de progrès
-const RECENT_SEANCES_COUNT = 5;
+const RECENT_COMPLETED_SEANCES_COUNT = 5;
 
-function computeRecentStats(programs: Program[]) {
-  const allSeances = programs.flatMap((p) => p.seances);
-  const recent = [...allSeances]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, RECENT_SEANCES_COUNT);
+type WorkoutPreviewStats = {
+  seanceCount: number;
+  totalVolumeKg: number;
+  lastSeanceDate: string | undefined;
+  thisWeekSeanceCount: number;
+  thisWeekVolumeKg: number;
+  latestRecord: { exerciseName: string; weightKg: number; reps: number } | null;
+};
 
-  const totalVolumeKg = recent.reduce(
-    (sum, seance) =>
-      sum +
-      seance.exercises.reduce(
-        (exSum, e) =>
-          exSum + e.sets.reduce((setSum, s) => setSum + s.reps * s.weightKg, 0),
-        0
-      ),
-    0
-  );
+function computeRecentStats(history: CompletedSeance[]): WorkoutPreviewStats {
+  const recent = [...history]
+    .sort((a, b) => new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime())
+    .slice(0, RECENT_COMPLETED_SEANCES_COUNT);
 
-  const lastSeanceDate = recent[0]?.date;
+  const totalVolumeKg = recent.reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
+
+  const lastSeanceDate = recent[0]?.endedAt;
+
+  const weekStart = new Date();
+  weekStart.setHours(0, 0, 0, 0);
+  const day = weekStart.getDay();
+  const offset = day === 0 ? 6 : day - 1;
+  weekStart.setDate(weekStart.getDate() - offset);
+
+  const thisWeekEntries = history.filter((entry) => {
+    const endedAt = new Date(entry.endedAt).getTime();
+    return Number.isFinite(endedAt) && endedAt >= weekStart.getTime();
+  });
+
+  const thisWeekVolumeKg = thisWeekEntries.reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
+
+  let latestRecord: { exerciseName: string; weightKg: number; reps: number } | null = null;
+  const bestByExercise = new Map<string, { weightKg: number; reps: number }>();
+
+  [...history]
+    .sort((a, b) => new Date(a.endedAt).getTime() - new Date(b.endedAt).getTime())
+    .forEach((entry) => {
+      entry.exercises.forEach((exercise) => {
+        const key = exercise.name.trim().toLocaleLowerCase();
+
+        exercise.sets.forEach((setItem) => {
+          const best = bestByExercise.get(key);
+          const isBetter =
+            !best ||
+            setItem.weightKg > best.weightKg ||
+            (setItem.weightKg === best.weightKg && setItem.reps > best.reps);
+
+          if (isBetter) {
+            bestByExercise.set(key, { weightKg: setItem.weightKg, reps: setItem.reps });
+            latestRecord = {
+              exerciseName: exercise.name,
+              weightKg: setItem.weightKg,
+              reps: setItem.reps,
+            };
+          }
+        });
+      });
+    });
 
   return {
     seanceCount: recent.length,
     totalVolumeKg,
     lastSeanceDate,
+    thisWeekSeanceCount: thisWeekEntries.length,
+    thisWeekVolumeKg,
+    latestRecord,
   };
 }
 
@@ -49,13 +92,14 @@ type Props = NativeStackScreenProps<SeancesStackParamList, 'ProgramsList'>;
 
 export default function WorkoutsScreen({ navigation }: Props) {
   const programs = useProgramStore((state) => state.programs);
+  const history = useProgramStore((state) => state.history);
   const addProgram = useProgramStore((state) => state.addProgram);
   const removeProgram = useProgramStore((state) => state.removeProgram);
   const updateProgram = useProgramStore((state) => state.updateProgram);
   const colors = useThemeColors();
   const [isEditing, setIsEditing] = useState(false);
 
-  const stats = useMemo(() => computeRecentStats(programs), [programs]);
+  const stats = useMemo(() => computeRecentStats(history), [history]);
 
   const handleAddProgram = () => {
     addProgram({
@@ -177,23 +221,40 @@ export default function WorkoutsScreen({ navigation }: Props) {
       </View>
 
       <Text style={[styles.title, styles.progressTitle, { color: colors.text }]}>Mes progrès</Text>
-      {stats.seanceCount === 0 ? (
-        <Text style={[styles.empty, { color: colors.subtleText }]}>Pas encore de données de progression.</Text>
-      ) : (
-        <View style={[styles.progressCard, { backgroundColor: colors.card }]}>
-          <Text style={[styles.progressLine, { color: colors.text }]}>
-            {stats.seanceCount} dernière(s) séance(s) enregistrée(s)
-          </Text>
-          <Text style={[styles.progressLine, { color: colors.text }]}>
-            Volume total soulevé : {stats.totalVolumeKg} kg
-          </Text>
-          {stats.lastSeanceDate && (
-            <Text style={[styles.progressLine, { color: colors.text }]}>
-              Dernière séance : {new Date(stats.lastSeanceDate).toLocaleDateString()}
-            </Text>
-          )}
+      <Pressable
+        onPress={() => navigation.navigate('Analytics')}
+        style={[styles.analyticsBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
+      >
+        <View style={styles.analyticsBannerTopRow}>
+          <Text style={[styles.analyticsBadge, { color: colors.primary }]}>Voir mes stats</Text>
+          <Text style={[styles.analyticsChevron, { color: colors.primary }]}>{'>'}</Text>
         </View>
-      )}
+
+        {stats.latestRecord ? (
+          <Text style={[styles.analyticsHeadline, { color: colors.text }]}>
+            PR recent: {stats.latestRecord.exerciseName} - {stats.latestRecord.weightKg} kg x {stats.latestRecord.reps}
+          </Text>
+        ) : (
+          <Text style={[styles.analyticsHeadline, { color: colors.text }]}>
+            Demarre une seance pour debloquer tes premieres stats
+          </Text>
+        )}
+
+        <View style={styles.analyticsMetricsRow}>
+          <Text style={[styles.analyticsMetric, { color: colors.text }]}>
+            {stats.thisWeekSeanceCount} seance(s) cette semaine
+          </Text>
+          <Text style={[styles.analyticsMetric, { color: colors.text }]}>
+            {Math.round(stats.thisWeekVolumeKg)} kg
+          </Text>
+        </View>
+
+        {stats.lastSeanceDate ? (
+          <Text style={[styles.analyticsSubline, { color: colors.subtleText }]}>
+            Derniere seance: {new Date(stats.lastSeanceDate).toLocaleDateString()}
+          </Text>
+        ) : null}
+      </Pressable>
     </View>
   );
 }
@@ -259,11 +320,41 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   deleteButton: { fontSize: 14, color: '#FF3B30' },
-  progressCard: {
-    backgroundColor: '#F2F2F7',
+  analyticsBanner: {
+    borderWidth: 1,
     borderRadius: 12,
     padding: 16,
-    gap: 6,
+    gap: 10,
   },
-  progressLine: { fontSize: 15 },
+  analyticsBannerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  analyticsBadge: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  analyticsChevron: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  analyticsHeadline: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  analyticsMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  analyticsMetric: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  analyticsSubline: {
+    fontSize: 13,
+  },
 });
