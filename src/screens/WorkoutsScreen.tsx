@@ -219,42 +219,6 @@ export default function WorkoutsScreen({ navigation }: Props) {
         />
       )}
       </View>
-
-      <Text style={[styles.title, styles.progressTitle, { color: colors.text }]}>Mes progrès</Text>
-      <Pressable
-        onPress={() => navigation.navigate('Analytics')}
-        style={[styles.analyticsBanner, { backgroundColor: colors.card, borderColor: colors.border }]}
-      >
-        <View style={styles.analyticsBannerTopRow}>
-          <Text style={[styles.analyticsBadge, { color: colors.primary }]}>Voir mes stats</Text>
-          <Text style={[styles.analyticsChevron, { color: colors.primary }]}>{'>'}</Text>
-        </View>
-
-        {stats.latestRecord ? (
-          <Text style={[styles.analyticsHeadline, { color: colors.text }]}>
-            PR recent: {stats.latestRecord.exerciseName} - {stats.latestRecord.weightKg} kg x {stats.latestRecord.reps}
-          </Text>
-        ) : (
-          <Text style={[styles.analyticsHeadline, { color: colors.text }]}>
-            Demarre une seance pour debloquer tes premieres stats
-          </Text>
-        )}
-
-        <View style={styles.analyticsMetricsRow}>
-          <Text style={[styles.analyticsMetric, { color: colors.text }]}>
-            {stats.thisWeekSeanceCount} seance(s) cette semaine
-          </Text>
-          <Text style={[styles.analyticsMetric, { color: colors.text }]}>
-            {Math.round(stats.thisWeekVolumeKg)} kg
-          </Text>
-        </View>
-
-        {stats.lastSeanceDate ? (
-          <Text style={[styles.analyticsSubline, { color: colors.subtleText }]}>
-            Derniere seance: {new Date(stats.lastSeanceDate).toLocaleDateString()}
-          </Text>
-        ) : null}
-      </Pressable>
     </View>
   );
 }
@@ -336,10 +300,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-  },
-  analyticsChevron: {
-    fontSize: 20,
-    fontWeight: '700',
   },
   analyticsHeadline: {
     fontSize: 16,

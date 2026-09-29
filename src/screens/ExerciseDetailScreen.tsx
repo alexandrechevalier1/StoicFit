@@ -270,7 +270,14 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
         </View>
 
         <Pressable
-          onPress={() => setIsAddSetModalVisible(true)}
+          onPress={() => {
+            const lastSet = exercise?.sets[exercise.sets.length - 1];
+            if (lastSet) {
+              setRepsValue(String(lastSet.reps));
+              setWeightValue(String(lastSet.weightKg));
+            }
+            setIsAddSetModalVisible(true);
+          }}
           style={[styles.addButton, { backgroundColor: colors.primary }]}
           hitSlop={12}
         >
