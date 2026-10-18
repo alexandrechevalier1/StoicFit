@@ -20,6 +20,7 @@ import type { SeancesStackParamList } from '../navigation/RootNavigator';
 import type { Set as ExerciseSet } from '../models';
 import NumericKeypad from '../components/NumericKeypad';
 import RestTimerButton from '../components/RestTimerButton';
+import IntensityIndicator from '../components/IntensityIndicator';
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'ExerciseDetail'>;
 
@@ -45,6 +46,15 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
   const [editWeightValue, setEditWeightValue] = useState('');
   const [repsValue, setRepsValue] = useState('');
   const [weightValue, setWeightValue] = useState('');
+  const [weightBodyweight, setWeightBodyweight] = useState(false);
+  const [editWeightBodyweight, setEditWeightBodyweight] = useState(false);
+
+  const formatSetWeight = (setItem: ExerciseSet) => {
+    if (setItem.bodyweight) {
+      return setItem.weightKg > 0 ? `pdc+${setItem.weightKg}` : 'pdc';
+    }
+    return setItem.weightKg.toFixed(2).replace('.', ',');
+  };
 
   const handlePickImage = async () => {
     if (!isEditing) return;
@@ -74,6 +84,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
     setIsAddSetModalVisible(false);
     setRepsValue('');
     setWeightValue('');
+    setWeightBodyweight(false);
   };
 
   const closeEditSetModal = () => {
@@ -82,6 +93,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
     setEditDateValue('');
     setEditRepsValue('');
     setEditWeightValue('');
+    setEditWeightBodyweight(false);
   };
 
   const handleValidateSet = () => {
@@ -91,6 +103,8 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
       weightKg: Number(weightValue) || 0,
       completed: false,
       date: new Date().toISOString(),
+      intensity: 'faible',
+      bodyweight: weightBodyweight,
     });
     closeAddSetModal();
   };
@@ -130,6 +144,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
     setEditDateValue(toLocalDateInput(setItem.date));
     setEditRepsValue(String(setItem.reps));
     setEditWeightValue(String(setItem.weightKg));
+    setEditWeightBodyweight(setItem.bodyweight ?? false);
     setIsEditSetModalVisible(true);
   };
 
@@ -147,6 +162,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
     updateSet(programId, seanceId, exerciseId, selectedSetId, {
       reps: Number(editRepsValue) || 0,
       weightKg: Number(editWeightValue) || 0,
+      bodyweight: editWeightBodyweight,
       date: nextDateIso,
     });
 
@@ -275,6 +291,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
             if (lastSet) {
               setRepsValue(String(lastSet.reps));
               setWeightValue(String(lastSet.weightKg));
+              setWeightBodyweight(lastSet.bodyweight ?? false);
             }
             setIsAddSetModalVisible(true);
           }}
@@ -326,12 +343,18 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
                       isEditing && pressed && { opacity: 0.7 },
                     ]}
                   >
-                    <Text style={[styles.setLine, { color: colors.text }]}>
+                    <Text style={[styles.setLine, { color: colors.text, flex: 1 }]}>
                       {`Série ${String(index + 1).padStart(2, ' ')}   ${String(item.reps).padStart(
                         3,
                         ' '
-                      )} X ${item.weightKg.toFixed(2).replace('.', ',').padStart(5, ' ')} Kg`}
+                      )} X ${formatSetWeight(item).padStart(5, ' ')} Kg`}
                     </Text>
+                    <IntensityIndicator
+                      value={item.intensity}
+                      onChange={(intensity) =>
+                        updateSet(programId, seanceId, exerciseId, item.id, { intensity })
+                      }
+                    />
                     {isEditing ? (
                       <Text style={[styles.editSetHintText, { color: colors.primary }]}>modifier</Text>
                     ) : null}
@@ -385,12 +408,29 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
 
               <View style={styles.modalCounterRow}>
                 <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Charge</Text>
-                <Text style={[styles.modalCounterValue, { color: colors.text }]}>{editWeightValue || '0'} kg</Text>
+                <Text style={[styles.modalCounterValue, { color: colors.text }]}>
+                  {editWeightBodyweight
+                    ? editWeightValue
+                      ? `pdc+${editWeightValue}`
+                      : 'pdc'
+                    : `${editWeightValue || '0'} kg`}
+                </Text>
               </View>
               <NumericKeypad
                 value={editWeightValue}
                 onDigitPress={(digit) => setEditWeightValue((v) => v + digit)}
-                onDeletePress={() => setEditWeightValue((v) => v.slice(0, -1))}
+                onDeletePress={() => {
+                  if (editWeightValue) {
+                    setEditWeightValue((v) => v.slice(0, -1));
+                  } else {
+                    setEditWeightBodyweight(false);
+                  }
+                }}
+                extraKey={{
+                  label: 'PDC',
+                  active: editWeightBodyweight,
+                  onPress: () => setEditWeightBodyweight((v) => !v),
+                }}
               />
 
               <Pressable
@@ -444,12 +484,29 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
 
               <View style={styles.modalCounterRow}>
                 <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Charge</Text>
-                <Text style={[styles.modalCounterValue, { color: colors.text }]}>{weightValue || '0'} kg</Text>
+                <Text style={[styles.modalCounterValue, { color: colors.text }]}>
+                  {weightBodyweight
+                    ? weightValue
+                      ? `pdc+${weightValue}`
+                      : 'pdc'
+                    : `${weightValue || '0'} kg`}
+                </Text>
               </View>
               <NumericKeypad
                 value={weightValue}
                 onDigitPress={(digit) => setWeightValue((v) => v + digit)}
-                onDeletePress={() => setWeightValue((v) => v.slice(0, -1))}
+                onDeletePress={() => {
+                  if (weightValue) {
+                    setWeightValue((v) => v.slice(0, -1));
+                  } else {
+                    setWeightBodyweight(false);
+                  }
+                }}
+                extraKey={{
+                  label: 'PDC',
+                  active: weightBodyweight,
+                  onPress: () => setWeightBodyweight((v) => !v),
+                }}
               />
 
               <Pressable style={[styles.modalValidateButton, { backgroundColor: colors.primary }]} onPress={handleValidateSet}>

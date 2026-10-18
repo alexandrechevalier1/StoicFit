@@ -140,7 +140,7 @@ export default function ExercisesScreen({ route, navigation }: Props) {
                     onChangeText={(text) =>
                       updateExercise(programId, seanceId, item.id, { subtitle: text })
                     }
-                    placeholder="Sous-titre (ex: 4 séries)"
+                    placeholder="Sous-titre (ex: 2 séries)"
                     placeholderTextColor={colors.subtleText}
                   />
                 ) : (

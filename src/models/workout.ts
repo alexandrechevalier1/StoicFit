@@ -1,9 +1,14 @@
+export type SetIntensity = 'faible' | 'modere' | 'intense';
+
 export interface ExercisePerformanceLog {
   id: string;
   reps: number;
   weightKg: number;
   completed: boolean;
   date: string; // ISO date string, date d'execution de la performance
+  intensity?: SetIntensity;
+  // true quand la charge est le poids de corps (pdc) : weightKg = charge ajoutée éventuelle
+  bodyweight?: boolean;
 }
 
 export interface Set extends ExercisePerformanceLog {}
@@ -45,6 +50,7 @@ export interface CompletedSet {
   weightKg: number;
   completed: boolean;
   performedAt: string; // ISO date string
+  bodyweight?: boolean;
 }
 
 export interface CompletedExercise {

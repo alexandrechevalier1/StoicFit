@@ -5,6 +5,11 @@ type NumericKeypadProps = {
   value: string;
   onDigitPress: (digit: string) => void;
   onDeletePress: () => void;
+  extraKey?: {
+    label: string;
+    active: boolean;
+    onPress: () => void;
+  };
 };
 
 const KEYS = [
@@ -14,7 +19,7 @@ const KEYS = [
   ['', '0', 'del'],
 ];
 
-export default function NumericKeypad({ onDigitPress, onDeletePress }: NumericKeypadProps) {
+export default function NumericKeypad({ onDigitPress, onDeletePress, extraKey }: NumericKeypadProps) {
   const colors = useThemeColors();
 
   return (
@@ -23,7 +28,24 @@ export default function NumericKeypad({ onDigitPress, onDeletePress }: NumericKe
         <View key={rowIndex} style={styles.row}>
           {row.map((key, keyIndex) => {
             if (key === '') {
-              return <View key={keyIndex} style={styles.key} />;
+              if (!extraKey) {
+                return <View key={keyIndex} style={styles.key} />;
+              }
+              return (
+                <Pressable
+                  key={keyIndex}
+                  style={[
+                    styles.key,
+                    { backgroundColor: extraKey.active ? colors.primary : colors.card },
+                  ]}
+                  onPress={extraKey.onPress}
+                  hitSlop={8}
+                >
+                  <Text style={[styles.extraKeyText, { color: extraKey.active ? '#fff' : colors.text }]}>
+                    {extraKey.label}
+                  </Text>
+                </Pressable>
+              );
             }
             if (key === 'del') {
               return (
@@ -70,5 +92,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   keyText: { fontSize: 20, fontWeight: '600' },
+  extraKeyText: { fontSize: 13, fontWeight: '700', letterSpacing: 0.5 },
   deleteKeyText: { fontSize: 18, color: '#FF3B30', fontWeight: '600' },
 });

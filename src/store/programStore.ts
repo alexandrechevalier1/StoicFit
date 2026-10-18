@@ -382,6 +382,7 @@ export const useProgramStore = create<ProgramStore>((set, get) => {
           weightKg: setItem.weightKg,
           completed: setItem.completed,
           performedAt: setItem.date,
+          bodyweight: setItem.bodyweight,
         })),
       }));
 
