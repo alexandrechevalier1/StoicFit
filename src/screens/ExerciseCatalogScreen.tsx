@@ -65,7 +65,6 @@ export default function ExerciseCatalogScreen({ route, navigation }: Props) {
       addExercise(programId, seanceId, {
         id: `${Date.now()}-${index}`,
         name,
-        sets: [],
       });
     });
     navigation.goBack();

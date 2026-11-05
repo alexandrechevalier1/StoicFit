@@ -19,6 +19,8 @@ import { getLocalDateKey } from '../utils/nutritionDate';
 
 const GOALS_STORAGE_KEY = '@stoicfit/nutrition/goals';
 const LOG_STORAGE_PREFIX = '@stoicfit/nutrition/logs/';
+// Hors du préfixe des logs : les copies de secours ne sont jamais rechargées comme des journées.
+const BACKUP_KEY_PREFIX = '@stoicfit/backup/';
 
 type NutritionLogMap = Record<string, DailyNutritionLog>;
 
@@ -65,11 +67,28 @@ const normalizeLog = (log: DailyNutritionLog): DailyNutritionLog => ({
       : buildMealTemplate(log.dateKey),
 });
 
+// Passe à true si la lecture initiale a échoué : on bloque alors toute écriture
+// pour ne pas écraser des données encore récupérables.
+let isPersistenceBlocked = false;
+
+const canPersist = () => !isPersistenceBlocked && useNutritionStore.getState().hasHydrated;
+
+const backupRawValue = async (storageKey: string, rawValue: string) => {
+  const backupKey = `${BACKUP_KEY_PREFIX}${storageKey}/${new Date().toISOString()}`;
+  await AsyncStorage.setItem(backupKey, rawValue);
+};
+
 const persistLog = async (log: DailyNutritionLog) => {
+  if (!canPersist()) {
+    return;
+  }
   await AsyncStorage.setItem(`${LOG_STORAGE_PREFIX}${log.dateKey}`, JSON.stringify(log));
 };
 
 const persistGoals = async (goals: NutritionGoals) => {
+  if (!canPersist()) {
+    return;
+  }
   await AsyncStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(goals));
 };
 
@@ -176,6 +195,11 @@ export const useNutritionStore = create<NutritionStore>((set, get) => {
             }
           } catch {
             storedGoals = DEFAULT_NUTRITION_GOALS;
+            try {
+              await backupRawValue(GOALS_STORAGE_KEY, goalsRaw);
+            } catch {
+              // Les objectifs se recalculent depuis le profil : pas bloquant.
+            }
           }
         }
 
@@ -205,10 +229,13 @@ export const useNutritionStore = create<NutritionStore>((set, get) => {
               };
             }
           } catch {
+            // Journée illisible : on la met de côté (copie brute) avant de la retirer.
+            // Si la copie échoue, on laisse l'original en place.
             try {
+              await backupRawValue(storageKey, rawValue);
               await AsyncStorage.removeItem(storageKey);
             } catch {
-              // Ignore cleanup failures.
+              // On réessaiera au prochain démarrage.
             }
           }
         }
@@ -221,13 +248,16 @@ export const useNutritionStore = create<NutritionStore>((set, get) => {
           error: null,
         });
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Unknown nutrition storage error';
+        // Erreur de lecture d'AsyncStorage : les données sont peut-être intactes,
+        // on ne doit pas les écraser avec un état vide.
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        isPersistenceBlocked = true;
         set({
           logsByDate: {},
           goals: DEFAULT_NUTRITION_GOALS,
           hasHydrated: true,
           isLoading: false,
-          error: `Donnees nutrition invalides. Reset applique: ${message}`,
+          error: `Impossible de lire tes données nutrition (${message}). Sauvegarde désactivée pour ne rien écraser : redémarre l'application.`,
         });
       }
     },

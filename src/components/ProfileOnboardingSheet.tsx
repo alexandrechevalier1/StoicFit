@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import NumericKeypad from './NumericKeypad';
 import { useThemeColors } from '../theme/useThemeColors';
+import { appendKeypadInput, parseDecimal, toDecimalInput } from '../utils/number';
 import type {
   DailyActivityLevel,
   NutritionGoal,
@@ -30,6 +31,10 @@ type NumberStep = {
   question: string;
   unit: string;
   optional?: boolean;
+  /** Autorise une virgule (ex. 72,5 kg). */
+  decimal?: boolean;
+  /** Nombre maximum de chiffres avant la virgule. */
+  maxIntegerDigits: number;
 };
 
 type Step = ChoiceStep<Sex> | ChoiceStep<NutritionGoal> | ChoiceStep<DailyActivityLevel> | ChoiceStep<TrainingIntensity> | NumberStep;
@@ -44,15 +49,30 @@ const STEPS: Step[] = [
       { label: 'Femme', value: 'femme' },
     ],
   },
-  { type: 'number', key: 'age', question: 'Vous avez quel âge ?', unit: 'ans' },
-  { type: 'number', key: 'weightKg', question: 'Vous faites quel poids ?', unit: 'kg' },
-  { type: 'number', key: 'heightCm', question: 'Vous faites quelle taille ?', unit: 'cm' },
+  { type: 'number', key: 'age', question: 'Vous avez quel âge ?', unit: 'ans', maxIntegerDigits: 3 },
+  {
+    type: 'number',
+    key: 'weightKg',
+    question: 'Vous faites quel poids ?',
+    unit: 'kg',
+    decimal: true,
+    maxIntegerDigits: 3,
+  },
+  {
+    type: 'number',
+    key: 'heightCm',
+    question: 'Vous faites quelle taille ?',
+    unit: 'cm',
+    maxIntegerDigits: 3,
+  },
   {
     type: 'number',
     key: 'bodyFatPercent',
     question: 'Taux de masse grasse estimé ?',
     unit: '%',
     optional: true,
+    decimal: true,
+    maxIntegerDigits: 2,
   },
   {
     type: 'choice',
@@ -64,7 +84,14 @@ const STEPS: Step[] = [
       { label: 'Prise de masse', value: 'prise' },
     ],
   },
-  { type: 'number', key: 'targetWeightKg', question: 'Quel est votre poids cible ?', unit: 'kg' },
+  {
+    type: 'number',
+    key: 'targetWeightKg',
+    question: 'Quel est votre poids cible ?',
+    unit: 'kg',
+    decimal: true,
+    maxIntegerDigits: 3,
+  },
   {
     type: 'choice',
     key: 'dailyActivityLevel',
@@ -81,6 +108,7 @@ const STEPS: Step[] = [
     key: 'trainingFrequencyPerWeek',
     question: "Fréquence d'entraînement par semaine ?",
     unit: 'séances',
+    maxIntegerDigits: 2,
   },
   {
     type: 'choice',
@@ -113,12 +141,14 @@ export default function ProfileOnboardingSheet({
     setDraft({
       sex: initialProfile.sex,
       age: String(initialProfile.age),
-      weightKg: String(initialProfile.weightKg),
+      weightKg: toDecimalInput(initialProfile.weightKg),
       heightCm: String(initialProfile.heightCm),
       bodyFatPercent:
-        initialProfile.bodyFatPercent !== undefined ? String(initialProfile.bodyFatPercent) : '',
+        initialProfile.bodyFatPercent !== undefined
+          ? toDecimalInput(initialProfile.bodyFatPercent)
+          : '',
       goal: initialProfile.goal,
-      targetWeightKg: String(initialProfile.targetWeightKg),
+      targetWeightKg: toDecimalInput(initialProfile.targetWeightKg),
       dailyActivityLevel: initialProfile.dailyActivityLevel,
       trainingFrequencyPerWeek: String(initialProfile.trainingFrequencyPerWeek),
       trainingIntensity: initialProfile.trainingIntensity,
@@ -139,18 +169,21 @@ export default function ProfileOnboardingSheet({
     onRequestClose();
   };
 
-  const buildProfile = (values: Record<string, string>): UserProfile => ({
-    sex: values.sex as Sex,
-    age: Number(values.age) || 0,
-    weightKg: Number(values.weightKg) || 0,
-    heightCm: Number(values.heightCm) || 0,
-    bodyFatPercent: values.bodyFatPercent ? Number(values.bodyFatPercent) : undefined,
-    goal: values.goal as NutritionGoal,
-    targetWeightKg: Number(values.targetWeightKg) || 0,
-    dailyActivityLevel: values.dailyActivityLevel as DailyActivityLevel,
-    trainingFrequencyPerWeek: Number(values.trainingFrequencyPerWeek) || 0,
-    trainingIntensity: values.trainingIntensity as TrainingIntensity,
-  });
+  const buildProfile = (values: Record<string, string>): UserProfile => {
+    const bodyFatPercent = parseDecimal(values.bodyFatPercent);
+    return {
+      sex: values.sex as Sex,
+      age: parseDecimal(values.age) || 0,
+      weightKg: parseDecimal(values.weightKg) || 0,
+      heightCm: parseDecimal(values.heightCm) || 0,
+      bodyFatPercent: Number.isFinite(bodyFatPercent) ? bodyFatPercent : undefined,
+      goal: values.goal as NutritionGoal,
+      targetWeightKg: parseDecimal(values.targetWeightKg) || 0,
+      dailyActivityLevel: values.dailyActivityLevel as DailyActivityLevel,
+      trainingFrequencyPerWeek: parseDecimal(values.trainingFrequencyPerWeek) || 0,
+      trainingIntensity: values.trainingIntensity as TrainingIntensity,
+    };
+  };
 
   const goToNextStep = (values: Record<string, string>) => {
     if (isLastStep) {
@@ -230,8 +263,16 @@ export default function ProfileOnboardingSheet({
                 </View>
                 <NumericKeypad
                   value={currentValue}
+                  allowDecimal={step.decimal}
                   onDigitPress={(digit) =>
-                    setDraft((prev) => ({ ...prev, [step.key]: (prev[step.key] ?? '') + digit }))
+                    setDraft((prev) => ({
+                      ...prev,
+                      [step.key]: appendKeypadInput(prev[step.key] ?? '', digit, {
+                        allowDecimal: step.decimal,
+                        maxDecimals: 1,
+                        maxIntegerDigits: step.maxIntegerDigits,
+                      }),
+                    }))
                   }
                   onDeletePress={() =>
                     setDraft((prev) => ({

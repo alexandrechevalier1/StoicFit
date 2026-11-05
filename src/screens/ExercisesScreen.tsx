@@ -15,6 +15,8 @@ import { useProgramStore } from '../store/programStore';
 import { useThemeColors } from '../theme/useThemeColors';
 import RestTimerButton from '../components/RestTimerButton';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
+import type { Exercise } from '../models';
+import { confirmDestructive, keptHistoryNote } from '../utils/confirm';
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'ExercisesList'>;
 
@@ -27,7 +29,17 @@ export default function ExercisesScreen({ route, navigation }: Props) {
   );
   const removeExercise = useProgramStore((state) => state.removeExercise);
   const updateExercise = useProgramStore((state) => state.updateExercise);
+  const setLogs = useProgramStore((state) => state.setLogs);
   const colors = useThemeColors();
+
+  const confirmRemoveExercise = (exercise: Exercise) => {
+    const setCount = setLogs.filter((log) => log.exerciseId === exercise.id).length;
+    confirmDestructive({
+      title: `Supprimer « ${exercise.name || 'cet exercice'} » ?`,
+      message: keptHistoryNote(setCount) || 'Aucune série enregistrée pour cet exercice.',
+      onConfirm: () => removeExercise(programId, seanceId, exercise.id),
+    });
+  };
   const [isEditing, setIsEditing] = useState(false);
 
   const exercises = seance?.exercises ?? [];
@@ -151,7 +163,7 @@ export default function ExercisesScreen({ route, navigation }: Props) {
               </View>
 
               {isEditing && (
-                <Pressable onPress={() => removeExercise(programId, seanceId, item.id)} hitSlop={12}>
+                <Pressable onPress={() => confirmRemoveExercise(item)} hitSlop={12}>
                   <Text style={[styles.deleteButton, { color: colors.danger }]}>Supprimer</Text>
                 </Pressable>
               )}

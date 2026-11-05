@@ -3,14 +3,24 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import RootNavigator from './src/navigation/RootNavigator';
 import { useNutritionStorage } from './src/hooks/useNutritionStorage';
 import { useWorkoutStorage } from './src/hooks/useWorkoutStorage';
+import { usePersistHydration } from './src/hooks/usePersistHydration';
+import { useProfileStore } from './src/store/profileStore';
 import { useThemeStore } from './src/store/themeStore';
 
 export default function App() {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const workoutStorage = useWorkoutStorage();
   const nutritionStorage = useNutritionStorage();
+  const isProfileHydrated = usePersistHydration(useProfileStore.persist);
+  const isThemeHydrated = usePersistHydration(useThemeStore.persist);
 
-  const isLoading = workoutStorage.isLoading || nutritionStorage.isLoading;
+  // On attend la fin de la lecture (hasHydrated) et pas seulement isLoading,
+  // qui vaut false au tout premier rendu, avant même le lancement du chargement.
+  const isLoading =
+    !workoutStorage.hasHydrated ||
+    !nutritionStorage.hasHydrated ||
+    !isProfileHydrated ||
+    !isThemeHydrated;
   const error = workoutStorage.error ?? nutritionStorage.error;
 
   if (isLoading) {

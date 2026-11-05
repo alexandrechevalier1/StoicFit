@@ -14,6 +14,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
 import { useThemeColors } from '../theme/useThemeColors';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
+import type { Seance } from '../models';
+import { confirmDestructive, joinLines, keptHistoryNote, pluralize } from '../utils/confirm';
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'SeancesList'>;
 
@@ -25,7 +27,23 @@ export default function SeancesScreen({ route, navigation }: Props) {
   const addSeance = useProgramStore((state) => state.addSeance);
   const removeSeance = useProgramStore((state) => state.removeSeance);
   const updateSeance = useProgramStore((state) => state.updateSeance);
+  const setLogs = useProgramStore((state) => state.setLogs);
   const colors = useThemeColors();
+
+  const confirmRemoveSeance = (seance: Seance) => {
+    const exerciseCount = seance.exercises.length;
+    const setCount = setLogs.filter((log) => log.seanceId === seance.id).length;
+    confirmDestructive({
+      title: `Supprimer « ${seance.name || 'cette séance'} » ?`,
+      message: joinLines(
+        exerciseCount > 0
+          ? `${pluralize(exerciseCount, 'exercice')} ${exerciseCount > 1 ? 'seront supprimés' : 'sera supprimé'}.`
+          : 'Cette séance est vide.',
+        keptHistoryNote(setCount)
+      ),
+      onConfirm: () => removeSeance(programId, seance.id),
+    });
+  };
   const [isEditing, setIsEditing] = useState(false);
 
   const seances = program?.seances ?? [];
@@ -148,7 +166,7 @@ export default function SeancesScreen({ route, navigation }: Props) {
               </View>
 
               {isEditing && (
-                <Pressable onPress={() => removeSeance(programId, item.id)} hitSlop={12}>
+                <Pressable onPress={() => confirmRemoveSeance(item)} hitSlop={12}>
                   <Text style={[styles.deleteButton, { color: colors.danger }]}>Supprimer</Text>
                 </Pressable>
               )}

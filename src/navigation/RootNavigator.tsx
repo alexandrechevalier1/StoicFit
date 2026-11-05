@@ -6,6 +6,7 @@ import SeancesScreen from '../screens/SeancesScreen';
 import ExercisesScreen from '../screens/ExercisesScreen';
 import ExerciseDetailScreen from '../screens/ExerciseDetailScreen';
 import ExerciseCatalogScreen from '../screens/ExerciseCatalogScreen';
+import AnalyticsScreen from '../screens/AnalyticsScreen';
 import NutritionScreen from '../screens/NutritionScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import { useThemeStore } from '../store/themeStore';
@@ -25,8 +26,14 @@ export type SeancesStackParamList = {
   ExerciseCatalog: { programId: string; seanceId: string };
 };
 
+export type ProfilStackParamList = {
+  ProfileHome: undefined;
+  Analytics: undefined;
+};
+
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const SeancesStack = createNativeStackNavigator<SeancesStackParamList>();
+const ProfilStack = createNativeStackNavigator<ProfilStackParamList>();
 
 function SeancesStackNavigator() {
   return (
@@ -37,6 +44,15 @@ function SeancesStackNavigator() {
       <SeancesStack.Screen name="ExercisesList" component={ExercisesScreen} />
       <SeancesStack.Screen name="ExerciseCatalog" component={ExerciseCatalogScreen} />
     </SeancesStack.Navigator>
+  );
+}
+
+function ProfilStackNavigator() {
+  return (
+    <ProfilStack.Navigator screenOptions={{ headerShown: false }}>
+      <ProfilStack.Screen name="ProfileHome" component={ProfileScreen} />
+      <ProfilStack.Screen name="Analytics" component={AnalyticsScreen} />
+    </ProfilStack.Navigator>
   );
 }
 
@@ -81,7 +97,7 @@ export default function RootNavigator() {
         />
         <Tab.Screen
           name="Profil"
-          component={ProfileScreen}
+          component={ProfilStackNavigator}
           options={{ title: 'Profil' }}
         />
       </Tab.Navigator>

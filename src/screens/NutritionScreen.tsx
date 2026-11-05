@@ -10,7 +10,21 @@ import { useThemeColors } from '../theme/useThemeColors';
 import { calculateNutritionTargets } from '../utils/nutritionCalculator';
 import { addDaysToDateKey, getLocalDateKey } from '../utils/nutritionDate';
 import { buildEmptyLog, DEFAULT_NUTRITION_GOALS } from '../utils/nutritionSummary';
+import { parseDecimal } from '../utils/number';
+import { confirmDestructive, pluralize } from '../utils/confirm';
 import type { NutritionGoals } from '../models';
+
+/** Valeur saisie si c'est un nombre >= 0, sinon `fallback`. Accepte "12,5" comme "12.5". */
+const parseAmount = (value: string, fallback: number) => {
+  const parsed = parseDecimal(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
+/** Comme parseAmount, mais refuse 0 (utile pour les objectifs et la quantité). */
+const parsePositiveAmount = (value: string, fallback: number) => {
+  const parsed = parseAmount(value, fallback);
+  return parsed > 0 ? parsed : fallback;
+};
 
 const EMPTY_FOOD_FORM = {
   name: '',
@@ -93,12 +107,12 @@ export default function NutritionScreen() {
 
     addFoodItem(selectedDateKey, activeMealSlot, {
       name: foodForm.name.trim(),
-      quantity: Number(foodForm.quantity) > 0 ? Number(foodForm.quantity) : 1,
+      quantity: parsePositiveAmount(foodForm.quantity, 1),
       unit: foodForm.unit.trim() || 'g',
-      calories: Number(foodForm.calories) || 0,
-      proteinG: Number(foodForm.proteinG) || 0,
-      carbsG: Number(foodForm.carbsG) || 0,
-      fatG: Number(foodForm.fatG) || 0,
+      calories: parseAmount(foodForm.calories, 0),
+      proteinG: parseAmount(foodForm.proteinG, 0),
+      carbsG: parseAmount(foodForm.carbsG, 0),
+      fatG: parseAmount(foodForm.fatG, 0),
     });
 
     closeFoodModal();
@@ -122,11 +136,11 @@ export default function NutritionScreen() {
 
   const handleValidateGoals = () => {
     const nextGoals: NutritionGoals = {
-      calories: Number(goalForm.calories) || DEFAULT_NUTRITION_GOALS.calories,
-      proteinG: Number(goalForm.proteinG) || DEFAULT_NUTRITION_GOALS.proteinG,
-      carbsG: Number(goalForm.carbsG) || DEFAULT_NUTRITION_GOALS.carbsG,
-      fatG: Number(goalForm.fatG) || DEFAULT_NUTRITION_GOALS.fatG,
-      waterMl: Number(goalForm.waterMl) || DEFAULT_NUTRITION_GOALS.waterMl,
+      calories: parsePositiveAmount(goalForm.calories, DEFAULT_NUTRITION_GOALS.calories),
+      proteinG: parsePositiveAmount(goalForm.proteinG, DEFAULT_NUTRITION_GOALS.proteinG),
+      carbsG: parsePositiveAmount(goalForm.carbsG, DEFAULT_NUTRITION_GOALS.carbsG),
+      fatG: parsePositiveAmount(goalForm.fatG, DEFAULT_NUTRITION_GOALS.fatG),
+      waterMl: parsePositiveAmount(goalForm.waterMl, DEFAULT_NUTRITION_GOALS.waterMl),
     };
 
     setGoals(nextGoals);
@@ -142,7 +156,31 @@ export default function NutritionScreen() {
   };
 
   const handleResetDay = () => {
-    resetDay(selectedDateKey);
+    const foodCount = selectedLog.meals.reduce((sum, meal) => sum + meal.items.length, 0);
+    if (foodCount === 0 && selectedLog.waterMl === 0) {
+      return; // rien à effacer
+    }
+    const parts = [
+      foodCount > 0 ? pluralize(foodCount, 'aliment') : null,
+      selectedLog.waterMl > 0 ? `${selectedLog.waterMl} ml d'eau` : null,
+    ].filter(Boolean);
+    confirmDestructive({
+      title: 'Réinitialiser la journée ?',
+      message: `${parts.join(' et ')} ${parts.length > 1 || foodCount > 1 ? 'seront effacés' : 'sera effacé'} pour cette date.`,
+      confirmLabel: 'Réinitialiser',
+      onConfirm: () => resetDay(selectedDateKey),
+    });
+  };
+
+  const handleRemoveFood = (slot: MealSlot, foodId: string) => {
+    const food = selectedLog.meals
+      .find((meal) => meal.slot === slot)
+      ?.items.find((item) => item.id === foodId);
+    confirmDestructive({
+      title: `Supprimer « ${food?.name || 'cet aliment'} » ?`,
+      message: food ? `${Math.round(food.calories)} kcal seront retirées de ce repas.` : 'Cet aliment sera retiré de ce repas.',
+      onConfirm: () => removeFoodItem(selectedDateKey, slot, foodId),
+    });
   };
 
   return (
@@ -163,7 +201,7 @@ export default function NutritionScreen() {
         onNextDay={() => navigateDay(1)}
         onToday={() => setSelectedDateKey(getLocalDateKey())}
         onAddFood={openAddFood}
-        onRemoveFood={(slot, foodId) => removeFoodItem(selectedDateKey, slot, foodId)}
+        onRemoveFood={handleRemoveFood}
         onOpenGoals={openGoalsModal}
         onAddWater={handleAddWater}
       />
@@ -230,12 +268,12 @@ export default function NutritionScreen() {
               </View>
 
               <Field label="Nom" value={foodForm.name} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, name: text }))} placeholder="Ex: Poulet grillé" />
-              <Field label="Quantité" value={foodForm.quantity} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, quantity: text }))} placeholder="1" keyboardType="numeric" />
+              <Field label="Quantité" value={foodForm.quantity} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, quantity: text }))} placeholder="1" keyboardType="decimal-pad" />
               <Field label="Unité" value={foodForm.unit} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, unit: text }))} placeholder="g" />
-              <Field label="Calories" value={foodForm.calories} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, calories: text }))} placeholder="0" keyboardType="numeric" />
-              <Field label="Protéines" value={foodForm.proteinG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, proteinG: text }))} placeholder="0" keyboardType="numeric" />
-              <Field label="Glucides" value={foodForm.carbsG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, carbsG: text }))} placeholder="0" keyboardType="numeric" />
-              <Field label="Lipides" value={foodForm.fatG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, fatG: text }))} placeholder="0" keyboardType="numeric" />
+              <Field label="Calories" value={foodForm.calories} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, calories: text }))} placeholder="0" keyboardType="decimal-pad" />
+              <Field label="Protéines" value={foodForm.proteinG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, proteinG: text }))} placeholder="0" keyboardType="decimal-pad" />
+              <Field label="Glucides" value={foodForm.carbsG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, carbsG: text }))} placeholder="0" keyboardType="decimal-pad" />
+              <Field label="Lipides" value={foodForm.fatG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, fatG: text }))} placeholder="0" keyboardType="decimal-pad" />
 
               <Pressable style={[styles.modalValidateButton, { backgroundColor: colors.primary }]} onPress={handleValidateFood}>
                 <Text style={styles.modalValidateButtonText}>Ajouter au journal</Text>
@@ -263,11 +301,11 @@ export default function NutritionScreen() {
             </View>
 
             <ScrollView contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
-              <Field label="Calories" value={goalForm.calories} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, calories: text }))} placeholder="2000" keyboardType="numeric" />
-              <Field label="Protéines" value={goalForm.proteinG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, proteinG: text }))} placeholder="140" keyboardType="numeric" />
-              <Field label="Glucides" value={goalForm.carbsG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, carbsG: text }))} placeholder="220" keyboardType="numeric" />
-              <Field label="Lipides" value={goalForm.fatG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, fatG: text }))} placeholder="70" keyboardType="numeric" />
-              <Field label="Eau (ml)" value={goalForm.waterMl} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, waterMl: text }))} placeholder="2500" keyboardType="numeric" />
+              <Field label="Calories" value={goalForm.calories} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, calories: text }))} placeholder="2000" keyboardType="number-pad" />
+              <Field label="Protéines" value={goalForm.proteinG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, proteinG: text }))} placeholder="140" keyboardType="number-pad" />
+              <Field label="Glucides" value={goalForm.carbsG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, carbsG: text }))} placeholder="220" keyboardType="number-pad" />
+              <Field label="Lipides" value={goalForm.fatG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, fatG: text }))} placeholder="70" keyboardType="number-pad" />
+              <Field label="Eau (ml)" value={goalForm.waterMl} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, waterMl: text }))} placeholder="2500" keyboardType="number-pad" />
 
               <Pressable style={[styles.modalValidateButton, { backgroundColor: colors.primary }]} onPress={handleValidateGoals}>
                 <Text style={styles.modalValidateButtonText}>Enregistrer les objectifs</Text>
@@ -291,7 +329,7 @@ function Field({
   value: string;
   onChangeText: (text: string) => void;
   placeholder: string;
-  keyboardType?: 'default' | 'numeric';
+  keyboardType?: 'default' | 'numeric' | 'decimal-pad' | 'number-pad';
 }) {
   const colors = useThemeColors();
   return (

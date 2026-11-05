@@ -1,5 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { UserProfile } from '../models';
+
+const STORAGE_KEY = '@stoicfit/profile';
 
 interface ProfileStore {
   profile: UserProfile | null;
@@ -11,16 +15,33 @@ interface ProfileStore {
   setAvatarUri: (uri: string) => void;
 }
 
-export const useProfileStore = create<ProfileStore>((set) => ({
-  profile: null,
-  displayName: 'Athlète',
-  avatarUri: undefined,
+type PersistedProfile = Pick<ProfileStore, 'profile' | 'displayName' | 'avatarUri'>;
 
-  setProfile: (profile) => set({ profile }),
+export const useProfileStore = create<ProfileStore>()(
+  persist(
+    (set) => ({
+      profile: null,
+      displayName: 'Athlète',
+      avatarUri: undefined,
 
-  clearProfile: () => set({ profile: null }),
+      setProfile: (profile) => set({ profile }),
 
-  setDisplayName: (name) => set({ displayName: name }),
+      clearProfile: () => set({ profile: null }),
 
-  setAvatarUri: (uri) => set({ avatarUri: uri }),
-}));
+      setDisplayName: (name) => set({ displayName: name }),
+
+      setAvatarUri: (uri) => set({ avatarUri: uri }),
+    }),
+    {
+      name: STORAGE_KEY,
+      version: 1,
+      storage: createJSONStorage(() => AsyncStorage),
+      // On ne sauvegarde que les données, pas les fonctions.
+      partialize: (state): PersistedProfile => ({
+        profile: state.profile,
+        displayName: state.displayName,
+        avatarUri: state.avatarUri,
+      }),
+    }
+  )
+);

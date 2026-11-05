@@ -4,76 +4,60 @@ import type {
   Program,
   Seance,
   Exercise,
-  Set,
-  CompletedExercise,
-  CompletedSeance,
+  NewSetLog,
+  SetLog,
+  SetLogChanges,
   WorkoutStorageSchema,
 } from '../models';
+import {
+  CURRENT_SCHEMA_VERSION,
+  NewerSchemaError,
+  parseWorkoutPayload,
+  type WorkoutData,
+} from './workoutMigrations';
 
 const STORAGE_KEY = '@stoicfit/workout-storage';
-const SCHEMA_VERSION = 1;
+const BACKUP_KEY_PREFIX = '@stoicfit/backup/workout-storage/';
 
-type MutableWorkoutData = {
-  programs: Program[];
-  history: CompletedSeance[];
-};
-
-const DEFAULT_DATA: MutableWorkoutData = {
+const DEFAULT_DATA: WorkoutData = {
   programs: [],
-  history: [],
+  setLogs: [],
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null;
+// --- Helpers de mise à jour imbriquée ---
 
-const parsePersistedPayload = (raw: string): MutableWorkoutData => {
-  const parsedUnknown: unknown = JSON.parse(raw);
+const mapSeances = (
+  programs: Program[],
+  programId: string,
+  update: (seances: Seance[]) => Seance[]
+) => programs.map((p) => (p.id === programId ? { ...p, seances: update(p.seances) } : p));
 
-  if (!isRecord(parsedUnknown)) {
-    throw new Error('Persisted payload is not an object');
-  }
-
-  const parsed = parsedUnknown as Partial<WorkoutStorageSchema>;
-
-  if (!Array.isArray(parsed.programs)) {
-    throw new Error('Persisted programs are invalid');
-  }
-
-  if (parsed.history !== undefined && !Array.isArray(parsed.history)) {
-    throw new Error('Persisted history is invalid');
-  }
-
-  return {
-    programs: parsed.programs,
-    history: parsed.history ?? [],
-  };
-};
-
-const computeHistoryStats = (exercises: CompletedExercise[]) => {
-  const totalReps = exercises.reduce(
-    (sum, exercise) => sum + exercise.sets.reduce((setSum, setItem) => setSum + setItem.reps, 0),
-    0
+const mapExercises = (
+  programs: Program[],
+  programId: string,
+  seanceId: string,
+  update: (exercises: Exercise[]) => Exercise[]
+) =>
+  mapSeances(programs, programId, (seances) =>
+    seances.map((s) => (s.id === seanceId ? { ...s, exercises: update(s.exercises) } : s))
   );
 
-  const totalVolumeKg = exercises.reduce(
-    (sum, exercise) =>
-      sum +
-      exercise.sets.reduce(
-        (setSum, setItem) => setSum + setItem.reps * setItem.weightKg,
-        0
-      ),
-    0
-  );
-
-  return {
-    totalReps,
-    totalVolumeKg,
-  };
+/** Recopie un nouveau nom dans les séries déjà enregistrées. */
+const renameInLogs = (
+  setLogs: SetLog[],
+  match: (log: SetLog) => boolean,
+  field: 'programName' | 'seanceName' | 'exerciseName',
+  name: string | undefined
+) => {
+  if (name === undefined) return setLogs;
+  return setLogs.map((log) => (match(log) && log[field] !== name ? { ...log, [field]: name } : log));
 };
 
 export interface ProgramStore {
+  /** Modèles : programmes → séances → exercices (sans aucune série). */
   programs: Program[];
-  history: CompletedSeance[];
+  /** Séries réellement effectuées. Indépendantes des modèles. */
+  setLogs: SetLog[];
 
   isLoading: boolean;
   hasHydrated: boolean;
@@ -81,7 +65,7 @@ export interface ProgramStore {
 
   initialize: () => Promise<void>;
 
-  // Program / seance CRUD
+  // Modèles
   addProgram: (program: Program) => void;
   removeProgram: (programId: string) => void;
   updateProgram: (programId: string, changes: Partial<Program>) => void;
@@ -96,28 +80,27 @@ export interface ProgramStore {
     exerciseId: string,
     changes: Partial<Exercise>
   ) => void;
-  addSet: (programId: string, seanceId: string, exerciseId: string, set: Set) => void;
-  removeSet: (programId: string, seanceId: string, exerciseId: string, setId: string) => void;
-  updateSet: (
-    programId: string,
-    seanceId: string,
-    exerciseId: string,
-    setId: string,
-    changes: Partial<Set>
-  ) => void;
 
-  // Completed seance history CRUD
-  completeSeance: (programId: string, seanceId: string) => boolean;
-  removeHistoryEntry: (historyId: string) => void;
-  updateHistoryEntry: (historyId: string, changes: Partial<CompletedSeance>) => void;
+  // Séries effectuées
+  addSet: (programId: string, seanceId: string, exerciseId: string, set: NewSetLog) => void;
+  updateSet: (setId: string, changes: SetLogChanges) => void;
+  removeSet: (setId: string) => void;
 }
 
 export const useProgramStore = create<ProgramStore>((set, get) => {
+  // Passe à true si on n'a pas pu lire (ou sauvegarder) les données existantes :
+  // on bloque alors toute écriture pour ne pas écraser des données encore récupérables.
+  let isPersistenceBlocked = false;
+
   const persist = async () => {
+    if (!get().hasHydrated || isPersistenceBlocked) {
+      return;
+    }
+
     const snapshot: WorkoutStorageSchema = {
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       programs: get().programs,
-      history: get().history,
+      setLogs: get().setLogs,
     };
 
     try {
@@ -136,12 +119,17 @@ export const useProgramStore = create<ProgramStore>((set, get) => {
     void persist();
   };
 
+  const backupRaw = async (label: string, raw: string) => {
+    const backupKey = `${BACKUP_KEY_PREFIX}${label}${new Date().toISOString()}`;
+    await AsyncStorage.setItem(backupKey, raw);
+    return backupKey;
+  };
+
   return {
     isLoading: false,
     hasHydrated: false,
     error: null,
-    programs: [],
-    history: [],
+    ...DEFAULT_DATA,
 
     initialize: async () => {
       const state = get();
@@ -151,285 +139,184 @@ export const useProgramStore = create<ProgramStore>((set, get) => {
 
       set({ isLoading: true, error: null });
 
+      let raw: string | null;
       try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        raw = await AsyncStorage.getItem(STORAGE_KEY);
+      } catch (error: unknown) {
+        // Erreur de lecture (pas de corruption) : les données sont peut-être intactes,
+        // on ne doit surtout pas les écraser avec un état vide.
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+        isPersistenceBlocked = true;
+        set({
+          ...DEFAULT_DATA,
+          hasHydrated: true,
+          isLoading: false,
+          error: `Impossible de lire tes séances (${message}). Sauvegarde désactivée pour ne rien écraser : redémarre l'application.`,
+        });
+        return;
+      }
 
-        if (!raw) {
-          set({ ...DEFAULT_DATA, hasHydrated: true, isLoading: false });
+      if (!raw) {
+        set({ ...DEFAULT_DATA, hasHydrated: true, isLoading: false });
+        return;
+      }
+
+      let parsed: ReturnType<typeof parseWorkoutPayload>;
+      try {
+        parsed = parseWorkoutPayload(raw);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Erreur inconnue';
+
+        if (error instanceof NewerSchemaError) {
+          // Données d'une version plus récente : on ne sait pas les lire, on n'y touche pas.
+          isPersistenceBlocked = true;
+          set({
+            ...DEFAULT_DATA,
+            hasHydrated: true,
+            isLoading: false,
+            error: `${message}. Mets l'application à jour. Sauvegarde désactivée pour ne rien écraser.`,
+          });
           return;
         }
 
-        const parsed = parsePersistedPayload(raw);
-        set({
-          programs: parsed.programs,
-          history: parsed.history,
-          hasHydrated: true,
-          isLoading: false,
-          error: null,
-        });
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Unknown parse error';
+        // Données corrompues : on garde une copie brute avant de repartir de zéro.
+        let backupKey: string | null = null;
+        try {
+          backupKey = await backupRaw('', raw);
+        } catch {
+          // Sans copie de secours, on n'écrase pas l'original.
+          isPersistenceBlocked = true;
+        }
 
         set({
           ...DEFAULT_DATA,
           hasHydrated: true,
           isLoading: false,
-          error: `Donnees locales invalides. Reset applique: ${message}`,
+          error: backupKey
+            ? `Données de séances illisibles (${message}). Une copie a été conservée (${backupKey}).`
+            : `Données de séances illisibles (${message}). Sauvegarde désactivée pour ne rien écraser.`,
         });
+        return;
+      }
 
+      const needsMigration = parsed.storedVersion < CURRENT_SCHEMA_VERSION;
+      let migrationError: string | null = null;
+
+      if (needsMigration) {
+        // Copie de l'ancien format avant de le réécrire, au cas où la migration aurait un bug.
         try {
-          await AsyncStorage.removeItem(STORAGE_KEY);
-        } catch {
-          // Keep the state usable even if cleanup fails.
+          await backupRaw(`v${parsed.storedVersion}-`, raw);
+        } catch (error: unknown) {
+          isPersistenceBlocked = true;
+          const message = error instanceof Error ? error.message : 'Erreur inconnue';
+          migrationError = `Impossible de sauvegarder l'ancien format avant migration (${message}). Sauvegarde désactivée pour ne rien écraser.`;
         }
       }
+
+      set({
+        programs: parsed.programs,
+        setLogs: parsed.setLogs,
+        hasHydrated: true,
+        isLoading: false,
+        error: migrationError,
+      });
+
+      if (needsMigration) {
+        await persist();
+      }
     },
 
-  addProgram: (program) =>
-    updateAndPersist((state) => ({ programs: [...state.programs, program] })),
+    // --- Modèles ---
 
-  removeProgram: (programId) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.filter((p) => p.id !== programId),
-    })),
+    addProgram: (program) =>
+      updateAndPersist((state) => ({ programs: [...state.programs, program] })),
 
-  updateProgram: (programId, changes) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.map((p) =>
-        p.id === programId ? { ...p, ...changes } : p
-      ),
-    })),
-
-  addSeance: (programId, seance) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.map((p) =>
-        p.id === programId ? { ...p, seances: [...p.seances, seance] } : p
-      ),
-    })),
-
-  removeSeance: (programId, seanceId) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.map((p) =>
-        p.id === programId
-          ? { ...p, seances: p.seances.filter((s) => s.id !== seanceId) }
-          : p
-      ),
-    })),
-
-  updateSeance: (programId, seanceId, changes) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.map((p) =>
-        p.id === programId
-          ? {
-              ...p,
-              seances: p.seances.map((s) =>
-                s.id === seanceId ? { ...s, ...changes } : s
-              ),
-            }
-          : p
-      ),
-    })),
-
-  addExercise: (programId, seanceId, exercise) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.map((p) =>
-        p.id === programId
-          ? {
-              ...p,
-              seances: p.seances.map((s) =>
-                s.id === seanceId
-                  ? { ...s, exercises: [...s.exercises, exercise] }
-                  : s
-              ),
-            }
-          : p
-      ),
-    })),
-
-  removeExercise: (programId, seanceId, exerciseId) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.map((p) =>
-        p.id === programId
-          ? {
-              ...p,
-              seances: p.seances.map((s) =>
-                s.id === seanceId
-                  ? { ...s, exercises: s.exercises.filter((e) => e.id !== exerciseId) }
-                  : s
-              ),
-            }
-          : p
-      ),
-    })),
-
-  updateExercise: (programId, seanceId, exerciseId, changes) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.map((p) =>
-        p.id === programId
-          ? {
-              ...p,
-              seances: p.seances.map((s) =>
-                s.id === seanceId
-                  ? {
-                      ...s,
-                      exercises: s.exercises.map((e) =>
-                        e.id === exerciseId ? { ...e, ...changes } : e
-                      ),
-                    }
-                  : s
-              ),
-            }
-          : p
-      ),
-    })),
-
-  addSet: (programId, seanceId, exerciseId, newSet) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.map((p) =>
-        p.id === programId
-          ? {
-              ...p,
-              seances: p.seances.map((s) =>
-                s.id === seanceId
-                  ? {
-                      ...s,
-                      exercises: s.exercises.map((e) =>
-                        e.id === exerciseId
-                          ? { ...e, sets: [...e.sets, newSet] }
-                          : e
-                      ),
-                    }
-                  : s
-              ),
-            }
-          : p
-      ),
-    })),
-
-  removeSet: (programId, seanceId, exerciseId, setId) =>
-    updateAndPersist((state) => ({
-      programs: state.programs.map((p) =>
-        p.id === programId
-          ? {
-              ...p,
-              seances: p.seances.map((s) =>
-                s.id === seanceId
-                  ? {
-                      ...s,
-                      exercises: s.exercises.map((e) =>
-                        e.id === exerciseId
-                          ? { ...e, sets: e.sets.filter((set) => set.id !== setId) }
-                          : e
-                      ),
-                    }
-                  : s
-              ),
-            }
-          : p
-      ),
-    })),
-
-    updateSet: (programId, seanceId, exerciseId, setId, changes) =>
+    // Les séries enregistrées sont conservées : elles restent dans l'historique.
+    removeProgram: (programId) =>
       updateAndPersist((state) => ({
-        programs: state.programs.map((p) =>
-          p.id === programId
-            ? {
-                ...p,
-                seances: p.seances.map((s) =>
-                  s.id === seanceId
-                    ? {
-                        ...s,
-                        exercises: s.exercises.map((e) =>
-                          e.id === exerciseId
-                            ? {
-                                ...e,
-                                sets: e.sets.map((setItem) =>
-                                  setItem.id === setId
-                                    ? { ...setItem, ...changes }
-                                    : setItem
-                                ),
-                              }
-                            : e
-                        ),
-                      }
-                    : s
-                ),
-              }
-            : p
+        programs: state.programs.filter((p) => p.id !== programId),
+      })),
+
+    updateProgram: (programId, changes) =>
+      updateAndPersist((state) => ({
+        programs: state.programs.map((p) => (p.id === programId ? { ...p, ...changes } : p)),
+        setLogs: renameInLogs(state.setLogs, (l) => l.programId === programId, 'programName', changes.name),
+      })),
+
+    addSeance: (programId, seance) =>
+      updateAndPersist((state) => ({
+        programs: mapSeances(state.programs, programId, (seances) => [...seances, seance]),
+      })),
+
+    removeSeance: (programId, seanceId) =>
+      updateAndPersist((state) => ({
+        programs: mapSeances(state.programs, programId, (seances) =>
+          seances.filter((s) => s.id !== seanceId)
         ),
       })),
 
-    completeSeance: (programId, seanceId) => {
-      const program = get().programs.find((item) => item.id === programId);
-      const seance = program?.seances.find((item) => item.id === seanceId);
+    updateSeance: (programId, seanceId, changes) =>
+      updateAndPersist((state) => ({
+        programs: mapSeances(state.programs, programId, (seances) =>
+          seances.map((s) => (s.id === seanceId ? { ...s, ...changes } : s))
+        ),
+        setLogs: renameInLogs(state.setLogs, (l) => l.seanceId === seanceId, 'seanceName', changes.name),
+      })),
 
-      if (!program || !seance) {
-        return false;
+    addExercise: (programId, seanceId, exercise) =>
+      updateAndPersist((state) => ({
+        programs: mapExercises(state.programs, programId, seanceId, (exercises) => [
+          ...exercises,
+          exercise,
+        ]),
+      })),
+
+    removeExercise: (programId, seanceId, exerciseId) =>
+      updateAndPersist((state) => ({
+        programs: mapExercises(state.programs, programId, seanceId, (exercises) =>
+          exercises.filter((e) => e.id !== exerciseId)
+        ),
+      })),
+
+    updateExercise: (programId, seanceId, exerciseId, changes) =>
+      updateAndPersist((state) => ({
+        programs: mapExercises(state.programs, programId, seanceId, (exercises) =>
+          exercises.map((e) => (e.id === exerciseId ? { ...e, ...changes } : e))
+        ),
+        setLogs: renameInLogs(state.setLogs, (l) => l.exerciseId === exerciseId, 'exerciseName', changes.name),
+      })),
+
+    // --- Séries effectuées ---
+
+    addSet: (programId, seanceId, exerciseId, newSet) => {
+      const program = get().programs.find((p) => p.id === programId);
+      const seance = program?.seances.find((s) => s.id === seanceId);
+      const exercise = seance?.exercises.find((e) => e.id === exerciseId);
+      if (!program || !seance || !exercise) {
+        return;
       }
 
-      const nowIso = new Date().toISOString();
-
-      const completedExercises: CompletedExercise[] = seance.exercises.map((exercise) => ({
-        id: `${exercise.id}-${nowIso}`,
-        exerciseId: exercise.id,
-        name: exercise.name,
-        subtitle: exercise.subtitle,
-        notes: exercise.notes,
-        sets: exercise.sets.map((setItem) => ({
-          id: `${setItem.id}-${nowIso}`,
-          setId: setItem.id,
-          reps: setItem.reps,
-          weightKg: setItem.weightKg,
-          completed: setItem.completed,
-          performedAt: setItem.date,
-          bodyweight: setItem.bodyweight,
-        })),
-      }));
-
-      const setDates = completedExercises
-        .flatMap((exercise) => exercise.sets)
-        .map((setItem) => new Date(setItem.performedAt).getTime())
-        .filter((timestamp) => Number.isFinite(timestamp));
-
-      const earliest = setDates.length > 0 ? Math.min(...setDates) : new Date(seance.date).getTime();
-      const startedAt = Number.isFinite(earliest) ? new Date(earliest).toISOString() : nowIso;
-      const endedAt = nowIso;
-
-      const durationMinutes = Math.max(
-        0,
-        Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 60000)
-      );
-
-      const stats = computeHistoryStats(completedExercises);
-
-      const historyEntry: CompletedSeance = {
-        id: `history-${seance.id}-${nowIso}`,
-        programId: program.id,
-        seanceId: seance.id,
+      const log: SetLog = {
+        ...newSet,
+        programId,
+        seanceId,
+        exerciseId,
         programName: program.name,
         seanceName: seance.name,
-        startedAt,
-        endedAt,
-        durationMinutes,
-        exercises: completedExercises,
-        totalReps: stats.totalReps,
-        totalVolumeKg: stats.totalVolumeKg,
+        exerciseName: exercise.name,
       };
 
-      updateAndPersist((state) => ({ history: [historyEntry, ...state.history] }));
-      return true;
+      updateAndPersist((state) => ({ setLogs: [...state.setLogs, log] }));
     },
 
-    removeHistoryEntry: (historyId) =>
+    updateSet: (setId, changes) =>
       updateAndPersist((state) => ({
-        history: state.history.filter((entry) => entry.id !== historyId),
+        setLogs: state.setLogs.map((log) => (log.id === setId ? { ...log, ...changes } : log)),
       })),
 
-    updateHistoryEntry: (historyId, changes) =>
+    removeSet: (setId) =>
       updateAndPersist((state) => ({
-        history: state.history.map((entry) =>
-          entry.id === historyId ? { ...entry, ...changes } : entry
-        ),
+        setLogs: state.setLogs.filter((log) => log.id !== setId),
       })),
   };
 });

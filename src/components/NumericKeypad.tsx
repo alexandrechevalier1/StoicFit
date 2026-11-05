@@ -1,10 +1,14 @@
 import { StyleSheet, Text, View, Pressable } from 'react-native';
 import { useThemeColors } from '../theme/useThemeColors';
+import { DECIMAL_SEPARATOR } from '../utils/number';
 
 type NumericKeypadProps = {
   value: string;
+  /** Appelé avec un chiffre ("0"-"9") ou la virgule (",") si `allowDecimal`. */
   onDigitPress: (digit: string) => void;
   onDeletePress: () => void;
+  /** Affiche une touche virgule pour saisir des décimales (ex. 22,5 kg). */
+  allowDecimal?: boolean;
   extraKey?: {
     label: string;
     active: boolean;
@@ -12,66 +16,90 @@ type NumericKeypadProps = {
   };
 };
 
-const KEYS = [
+const DIGIT_ROWS = [
   ['1', '2', '3'],
   ['4', '5', '6'],
   ['7', '8', '9'],
-  ['', '0', 'del'],
 ];
 
-export default function NumericKeypad({ onDigitPress, onDeletePress, extraKey }: NumericKeypadProps) {
+export default function NumericKeypad({
+  onDigitPress,
+  onDeletePress,
+  allowDecimal = false,
+  extraKey,
+}: NumericKeypadProps) {
   const colors = useThemeColors();
+
+  // La case en bas à gauche accueille la virgule si besoin, sinon la touche spéciale.
+  // Si les deux sont demandées, la touche spéciale passe sur une ligne dédiée.
+  const extraKeyInGrid = extraKey && !allowDecimal ? extraKey : undefined;
+  const extraKeyOnOwnRow = extraKey && allowDecimal ? extraKey : undefined;
+
+  const renderDigitKey = (key: string, label = key) => (
+    <Pressable
+      key={key}
+      style={[styles.key, { backgroundColor: colors.card }]}
+      onPress={() => onDigitPress(key)}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={key === DECIMAL_SEPARATOR ? 'Virgule' : key}
+    >
+      <Text style={[styles.keyText, { color: colors.text }]}>{label}</Text>
+    </Pressable>
+  );
+
+  const renderExtraKey = (
+    key: NonNullable<NumericKeypadProps['extraKey']>,
+    style: object = styles.key
+  ) => (
+    <Pressable
+      key="extra"
+      style={[style, { backgroundColor: key.active ? colors.primary : colors.card }]}
+      onPress={key.onPress}
+      hitSlop={8}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: key.active }}
+      accessibilityLabel={key.label}
+    >
+      <Text style={[styles.extraKeyText, { color: key.active ? '#fff' : colors.text }]}>
+        {key.label}
+      </Text>
+    </Pressable>
+  );
+
+  let bottomLeftKey;
+  if (allowDecimal) {
+    bottomLeftKey = renderDigitKey(DECIMAL_SEPARATOR);
+  } else if (extraKeyInGrid) {
+    bottomLeftKey = renderExtraKey(extraKeyInGrid);
+  } else {
+    bottomLeftKey = <View key="empty" style={styles.key} />;
+  }
 
   return (
     <View style={styles.container}>
-      {KEYS.map((row, rowIndex) => (
+      {DIGIT_ROWS.map((row, rowIndex) => (
         <View key={rowIndex} style={styles.row}>
-          {row.map((key, keyIndex) => {
-            if (key === '') {
-              if (!extraKey) {
-                return <View key={keyIndex} style={styles.key} />;
-              }
-              return (
-                <Pressable
-                  key={keyIndex}
-                  style={[
-                    styles.key,
-                    { backgroundColor: extraKey.active ? colors.primary : colors.card },
-                  ]}
-                  onPress={extraKey.onPress}
-                  hitSlop={8}
-                >
-                  <Text style={[styles.extraKeyText, { color: extraKey.active ? '#fff' : colors.text }]}>
-                    {extraKey.label}
-                  </Text>
-                </Pressable>
-              );
-            }
-            if (key === 'del') {
-              return (
-                <Pressable
-                  key={keyIndex}
-                  style={[styles.key, { backgroundColor: colors.card }]}
-                  onPress={onDeletePress}
-                  hitSlop={8}
-                >
-                  <Text style={styles.deleteKeyText}>⌫</Text>
-                </Pressable>
-              );
-            }
-            return (
-              <Pressable
-                key={keyIndex}
-                style={[styles.key, { backgroundColor: colors.card }]}
-                onPress={() => onDigitPress(key)}
-                hitSlop={8}
-              >
-                <Text style={[styles.keyText, { color: colors.text }]}>{key}</Text>
-              </Pressable>
-            );
-          })}
+          {row.map((key) => renderDigitKey(key))}
         </View>
       ))}
+      <View style={styles.row}>
+        {bottomLeftKey}
+        {renderDigitKey('0')}
+        <Pressable
+          key="del"
+          style={[styles.key, { backgroundColor: colors.card }]}
+          onPress={onDeletePress}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Effacer"
+        >
+          <Text style={styles.deleteKeyText}>⌫</Text>
+        </Pressable>
+      </View>
+      {extraKeyOnOwnRow ? (
+        <View style={styles.row}>{renderExtraKey(extraKeyOnOwnRow, styles.wideKey)}</View>
+      ) : null}
     </View>
   );
 }
@@ -87,6 +115,14 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: 4,
     height: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wideKey: {
+    flex: 1,
+    marginHorizontal: 4,
+    height: 40,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',

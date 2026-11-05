@@ -13,7 +13,9 @@ import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
 import { useThemeColors } from '../theme/useThemeColors';
-import type { CompletedSeance } from '../models';
+import type { CompletedSeance, Program } from '../models';
+import { confirmDestructive, joinLines, keptHistoryNote, pluralize } from '../utils/confirm';
+import { useWorkoutHistory } from '../hooks/useWorkoutHistory';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 
 // Nombre de dernières séances prises en compte pour le récap de progrès
@@ -92,11 +94,30 @@ type Props = NativeStackScreenProps<SeancesStackParamList, 'ProgramsList'>;
 
 export default function WorkoutsScreen({ navigation }: Props) {
   const programs = useProgramStore((state) => state.programs);
-  const history = useProgramStore((state) => state.history);
+  const history = useWorkoutHistory();
+  const setLogs = useProgramStore((state) => state.setLogs);
   const addProgram = useProgramStore((state) => state.addProgram);
   const removeProgram = useProgramStore((state) => state.removeProgram);
   const updateProgram = useProgramStore((state) => state.updateProgram);
   const colors = useThemeColors();
+
+  const confirmRemoveProgram = (program: Program) => {
+    const seanceCount = program.seances.length;
+    const exerciseCount = program.seances.reduce((sum, s) => sum + s.exercises.length, 0);
+    const setCount = setLogs.filter((log) => log.programId === program.id).length;
+    confirmDestructive({
+      title: `Supprimer « ${program.name || 'ce programme'} » ?`,
+      message: joinLines(
+        seanceCount === 0
+          ? 'Ce programme est vide.'
+          : exerciseCount === 0
+            ? `${pluralize(seanceCount, 'séance')} ${seanceCount > 1 ? 'seront supprimées' : 'sera supprimée'}.`
+            : `${pluralize(seanceCount, 'séance')} et ${pluralize(exerciseCount, 'exercice')} seront supprimés.`,
+        keptHistoryNote(setCount)
+      ),
+      onConfirm: () => removeProgram(program.id),
+    });
+  };
   const [isEditing, setIsEditing] = useState(false);
 
   const stats = useMemo(() => computeRecentStats(history), [history]);
@@ -210,7 +231,7 @@ export default function WorkoutsScreen({ navigation }: Props) {
               </View>
 
               {isEditing && (
-                <Pressable onPress={() => removeProgram(item.id)} hitSlop={12}>
+                <Pressable onPress={() => confirmRemoveProgram(item)} hitSlop={12}>
                   <Text style={[styles.deleteButton, { color: colors.danger }]}>Supprimer</Text>
                 </Pressable>
               )}

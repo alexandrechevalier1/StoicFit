@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View, Image, Pressable, TextInput, ScrollView, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
+import { useWorkoutHistory } from '../hooks/useWorkoutHistory';
 import { useNutritionStorage } from '../hooks/useNutritionStorage';
 import { useProfileStore } from '../store/profileStore';
 import { useThemeStore } from '../store/themeStore';
 import { useThemeColors } from '../theme/useThemeColors';
 import ProfileOnboardingSheet from '../components/ProfileOnboardingSheet';
 import { getLocalDateKey } from '../utils/nutritionDate';
+import type { ProfilStackParamList } from '../navigation/RootNavigator';
 import type { CompletedSeance } from '../models';
 
 type PeriodFilter = 'all' | 'month' | 'year';
@@ -161,9 +164,11 @@ function computeWeeklyVolumes(history: CompletedSeance[], exerciseFilter: string
     })) as WeeklyVolume[];
 }
 
-export default function ProfileScreen() {
-  const programs = useProgramStore((state) => state.programs);
-  const history = useProgramStore((state) => state.history);
+type Props = NativeStackScreenProps<ProfilStackParamList, 'ProfileHome'>;
+
+export default function ProfileScreen({ navigation }: Props) {
+  const setLogs = useProgramStore((state) => state.setLogs);
+  const history = useWorkoutHistory();
   const { goals, logsByDate, getWeeklySummary } = useNutritionStorage();
   const profile = useProfileStore((state) => state.profile);
   const displayName = useProfileStore((state) => state.displayName);
@@ -204,19 +209,15 @@ export default function ProfileScreen() {
   };
 
   const weeklyWorkoutStats = useMemo(() => {
-    const setsThisWeek = programs.flatMap((p) =>
-      p.seances.flatMap((s) =>
-        s.exercises.flatMap((e) => e.sets.filter((set) => isWithinLastDays(set.date, 7)))
-      )
-    );
-    const workoutDays = new Set(setsThisWeek.map((set) => set.date.slice(0, 10)));
+    const setsThisWeek = setLogs.filter((set) => isWithinLastDays(set.date, 7));
+    const workoutDays = new Set(setsThisWeek.map((set) => getLocalDateKey(new Date(set.date))));
     const totalVolume = setsThisWeek.reduce((sum, set) => sum + set.reps * set.weightKg, 0);
     return {
       sessionsCount: workoutDays.size,
       setsCount: setsThisWeek.length,
       totalVolume: Math.round(totalVolume),
     };
-  }, [programs]);
+  }, [setLogs]);
 
   const weeklyNutritionStats = useMemo(() => {
     const summary = getWeeklySummary(getLocalDateKey());
@@ -487,6 +488,17 @@ export default function ProfileScreen() {
             })}
           </View>
         )}
+
+        <Pressable
+          style={[styles.analyticsButton, { borderColor: colors.primary }]}
+          onPress={() => navigation.navigate('Analytics')}
+          accessibilityRole="button"
+          accessibilityLabel="Ouvrir la page Analytics"
+        >
+          <Text style={[styles.analyticsButtonText, { color: colors.primary }]}>
+            Ouvrir la page Analytics
+          </Text>
+        </Pressable>
       </View>
 
       <Pressable
@@ -624,6 +636,14 @@ const styles = StyleSheet.create({
   recordExercise: { fontSize: 15, fontWeight: '600' },
   recordDate: { fontSize: 12, marginTop: 2 },
   recordValue: { fontSize: 16, fontWeight: '800' },
+  analyticsButton: {
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  analyticsButtonText: { fontSize: 15, fontWeight: '600' },
   healthButton: {
     borderWidth: 1.5,
     borderColor: '#007AFF',

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,20 +9,41 @@ import {
   Alert,
   Modal,
   ScrollView,
-  FlatList,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
 import { useThemeColors } from '../theme/useThemeColors';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
-import type { Set as ExerciseSet } from '../models';
+import type { SetLog as ExerciseSet } from '../models';
 import NumericKeypad from '../components/NumericKeypad';
+import DatePicker from '../components/DatePicker';
 import RestTimerButton from '../components/RestTimerButton';
 import IntensityIndicator from '../components/IntensityIndicator';
+import { appendKeypadInput, parseDecimal, toDecimalInput } from '../utils/number';
+import { confirmDestructive } from '../utils/confirm';
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'ExerciseDetail'>;
+
+const NOTE_MAX_LENGTH = 200;
+
+const appendReps = (current: string, key: string) =>
+  appendKeypadInput(current, key, { maxIntegerDigits: 3 });
+
+const appendWeight = (current: string, key: string) =>
+  appendKeypadInput(current, key, { allowDecimal: true, maxDecimals: 2, maxIntegerDigits: 4 });
+
+const parseReps = (value: string) => {
+  const parsed = parseDecimal(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+};
+
+const parseWeight = (value: string) => {
+  const parsed = parseDecimal(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
 
 export default function ExerciseDetailScreen({ route, navigation }: Props) {
   const { programId, seanceId, exerciseId } = route.params;
@@ -32,10 +53,40 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
       ?.seances.find((s) => s.id === seanceId)
       ?.exercises.find((e) => e.id === exerciseId)
   );
+  const seance = useProgramStore((state) =>
+    state.programs
+      .find((p) => p.id === programId)
+      ?.seances.find((s) => s.id === seanceId)
+  );
   const updateExercise = useProgramStore((state) => state.updateExercise);
+  const updateSeance = useProgramStore((state) => state.updateSeance);
   const addSet = useProgramStore((state) => state.addSet);
   const updateSet = useProgramStore((state) => state.updateSet);
   const removeSet = useProgramStore((state) => state.removeSet);
+  const setLogs = useProgramStore((state) => state.setLogs);
+  const exerciseSets = useMemo(
+    () =>
+      setLogs.filter(
+        (log) => log.programId === programId && log.seanceId === seanceId && log.exerciseId === exerciseId
+      ),
+    [setLogs, programId, seanceId, exerciseId]
+  );
+  // Pour pré-remplir la saisie : dernière série de cet exercice, sinon dernière série
+  // d'un exercice du même nom (ex. le même mouvement dans un autre programme).
+  const lastSet = useMemo(() => {
+    const latest = (logs: ExerciseSet[]) =>
+      logs.reduce<ExerciseSet | undefined>(
+        (best, log) => (!best || new Date(log.date) >= new Date(best.date) ? log : best),
+        undefined
+      );
+    const nameKey = exercise?.name.trim().toLocaleLowerCase();
+    return (
+      latest(exerciseSets) ??
+      (nameKey
+        ? latest(setLogs.filter((log) => log.exerciseName.trim().toLocaleLowerCase() === nameKey))
+        : undefined)
+    );
+  }, [exerciseSets, setLogs, exercise?.name]);
   const colors = useThemeColors();
   const [isEditing, setIsEditing] = useState(false);
   const [isAddSetModalVisible, setIsAddSetModalVisible] = useState(false);
@@ -48,10 +99,16 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
   const [weightValue, setWeightValue] = useState('');
   const [weightBodyweight, setWeightBodyweight] = useState(false);
   const [editWeightBodyweight, setEditWeightBodyweight] = useState(false);
+  const [isGroupDateModalVisible, setIsGroupDateModalVisible] = useState(false);
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+  const [groupDateValue, setGroupDateValue] = useState('');
+  const [isNoteModalVisible, setIsNoteModalVisible] = useState(false);
+  const [selectedNoteDateKey, setSelectedNoteDateKey] = useState<string | null>(null);
+  const [noteValue, setNoteValue] = useState('');
 
   const formatSetWeight = (setItem: ExerciseSet) => {
     if (setItem.bodyweight) {
-      return setItem.weightKg > 0 ? `pdc+${setItem.weightKg}` : 'pdc';
+      return setItem.weightKg > 0 ? `pdc+${toDecimalInput(setItem.weightKg)}` : 'pdc';
     }
     return setItem.weightKg.toFixed(2).replace('.', ',');
   };
@@ -99,9 +156,8 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
   const handleValidateSet = () => {
     addSet(programId, seanceId, exerciseId, {
       id: Date.now().toString(),
-      reps: Number(repsValue) || 0,
-      weightKg: Number(weightValue) || 0,
-      completed: false,
+      reps: parseReps(repsValue),
+      weightKg: parseWeight(weightValue),
       date: new Date().toISOString(),
       intensity: 'faible',
       bodyweight: weightBodyweight,
@@ -143,7 +199,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
     setSelectedSetId(setItem.id);
     setEditDateValue(toLocalDateInput(setItem.date));
     setEditRepsValue(String(setItem.reps));
-    setEditWeightValue(String(setItem.weightKg));
+    setEditWeightValue(toDecimalInput(setItem.weightKg));
     setEditWeightBodyweight(setItem.bodyweight ?? false);
     setIsEditSetModalVisible(true);
   };
@@ -159,9 +215,9 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
       return;
     }
 
-    updateSet(programId, seanceId, exerciseId, selectedSetId, {
-      reps: Number(editRepsValue) || 0,
-      weightKg: Number(editWeightValue) || 0,
+    updateSet(selectedSetId, {
+      reps: parseReps(editRepsValue),
+      weightKg: parseWeight(editWeightValue),
       bodyweight: editWeightBodyweight,
       date: nextDateIso,
     });
@@ -174,17 +230,109 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
       return;
     }
 
-    Alert.alert('Supprimer la serie', 'Cette serie sera supprimee definitivement.', [
-      { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Supprimer',
-        style: 'destructive',
-        onPress: () => {
-          removeSet(programId, seanceId, exerciseId, selectedSetId);
-          closeEditSetModal();
-        },
+    confirmDestructive({
+      title: 'Supprimer la série ?',
+      message: 'Cette série sera supprimée définitivement.',
+      onConfirm: () => {
+        removeSet(selectedSetId);
+        closeEditSetModal();
       },
-    ]);
+    });
+  };
+
+  const openGroupDateModal = (dateKey: string) => {
+    if (!isEditing) {
+      return;
+    }
+    setSelectedDateKey(dateKey);
+    setGroupDateValue(dateKey);
+    setIsGroupDateModalVisible(true);
+  };
+
+  const closeGroupDateModal = () => {
+    setIsGroupDateModalVisible(false);
+    setSelectedDateKey(null);
+    setGroupDateValue('');
+  };
+
+  const handleSaveGroupDate = () => {
+    if (!selectedDateKey) {
+      return;
+    }
+
+    const nextDateIso = toIsoFromLocalDateInput(groupDateValue);
+    if (!nextDateIso) {
+      Alert.alert('Date invalide', 'Utilisez le format YYYY-MM-DD.');
+      return;
+    }
+
+    if (groupDateValue === selectedDateKey) {
+      closeGroupDateModal();
+      return;
+    }
+
+    const group = setsByDate.find((entry) => entry.dateKey === selectedDateKey);
+    if (!group) {
+      closeGroupDateModal();
+      return;
+    }
+
+    // Déplace toutes les séries de ce bandeau vers la nouvelle date
+    group.sets.forEach((setItem) => {
+      updateSet(setItem.id, { date: nextDateIso });
+    });
+
+    closeGroupDateModal();
+  };
+
+  const openNoteModal = (dateKey: string) => {
+    setSelectedNoteDateKey(dateKey);
+    setNoteValue(seance?.notesByDate?.[dateKey] ?? '');
+    setIsNoteModalVisible(true);
+  };
+
+  const closeNoteModal = () => {
+    setIsNoteModalVisible(false);
+    setSelectedNoteDateKey(null);
+    setNoteValue('');
+  };
+
+  const persistNote = () => {
+    if (!selectedNoteDateKey) {
+      return;
+    }
+
+    const nextNotes: Record<string, string> = { ...(seance?.notesByDate ?? {}) };
+    const trimmed = noteValue.trim().slice(0, NOTE_MAX_LENGTH);
+
+    if (trimmed) {
+      nextNotes[selectedNoteDateKey] = trimmed;
+    } else {
+      delete nextNotes[selectedNoteDateKey];
+    }
+
+    updateSeance(programId, seanceId, { notesByDate: nextNotes });
+  };
+
+  const handleSaveNote = () => {
+    if (!selectedNoteDateKey) {
+      return;
+    }
+
+    persistNote();
+    closeNoteModal();
+  };
+
+  const openDateModalFromNote = () => {
+    if (!selectedNoteDateKey) {
+      return;
+    }
+
+    const dateKey = selectedNoteDateKey;
+    // On conserve la note en cours avant d'ouvrir le déplacement de date
+    persistNote();
+    closeNoteModal();
+    openGroupDateModal(dateKey);
   };
 
   const isSameDay = (isoDate: string, reference: Date) => {
@@ -214,7 +362,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
     { dateKey: string; sets: ExerciseSet[]; totalReps: number; totalVolume: number }
   >();
 
-  for (const setItem of exercise?.sets ?? []) {
+  for (const setItem of exerciseSets) {
     const dateKey = getDateKey(setItem.date);
     const existing = groupedSetsMap.get(dateKey);
 
@@ -256,115 +404,128 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
         </View>
       </View>
 
-      <View style={styles.titleRow}>
-        <Pressable
-          onPress={handlePickImage}
-          disabled={!isEditing}
-          style={[styles.thumbnail, { backgroundColor: colors.card }]}
-        >
-          {exercise?.imageUri ? (
-            <Image source={{ uri: exercise.imageUri }} style={styles.thumbnailImage} />
-          ) : (
-            <Text style={styles.thumbnailPlaceholder}>📷</Text>
-          )}
-        </Pressable>
+      <ScrollView
+        style={styles.contentScroll}
+        contentContainerStyle={styles.contentScrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.titleRow}>
+          <Pressable
+            onPress={handlePickImage}
+            disabled={!isEditing}
+            style={[styles.thumbnail, { backgroundColor: colors.card }]}
+          >
+            {exercise?.imageUri ? (
+              <Image source={{ uri: exercise.imageUri }} style={styles.thumbnailImage} />
+            ) : (
+              <Text style={styles.thumbnailPlaceholder}>📷</Text>
+            )}
+          </Pressable>
 
-        <View style={styles.itemTextContainer}>
-          {isEditing ? (
-            <TextInput
-              style={[styles.title, styles.itemTextInput, { color: colors.text, borderBottomColor: colors.border }]}
-              value={exercise?.name}
-              onChangeText={(text) =>
-                updateExercise(programId, seanceId, exerciseId, { name: text })
+          <View style={styles.itemTextContainer}>
+            {isEditing ? (
+              <TextInput
+                style={[styles.title, styles.itemTextInput, { color: colors.text, borderBottomColor: colors.border }]}
+                value={exercise?.name}
+                onChangeText={(text) =>
+                  updateExercise(programId, seanceId, exerciseId, { name: text })
+                }
+                placeholder="Nom de l'exercice"
+                placeholderTextColor={colors.subtleText}
+              />
+            ) : (
+              <Text style={[styles.title, { color: colors.text }]}>{exercise?.name}</Text>
+            )}
+          </View>
+
+          <Pressable
+            onPress={() => {
+              if (lastSet) {
+                setRepsValue(String(lastSet.reps));
+                setWeightValue(toDecimalInput(lastSet.weightKg));
+                setWeightBodyweight(lastSet.bodyweight ?? false);
               }
-              placeholder="Nom de l'exercice"
-              placeholderTextColor={colors.subtleText}
-            />
-          ) : (
-            <Text style={[styles.title, { color: colors.text }]}>{exercise?.name}</Text>
-          )}
+              setIsAddSetModalVisible(true);
+            }}
+            style={[styles.addButton, { backgroundColor: colors.primary }]}
+            hitSlop={12}
+          >
+            <Text style={styles.addButtonText}>+</Text>
+          </Pressable>
         </View>
 
-        <Pressable
-          onPress={() => {
-            const lastSet = exercise?.sets[exercise.sets.length - 1];
-            if (lastSet) {
-              setRepsValue(String(lastSet.reps));
-              setWeightValue(String(lastSet.weightKg));
-              setWeightBodyweight(lastSet.bodyweight ?? false);
+        {isEditing ? (
+          <TextInput
+            style={[styles.subtitle, styles.itemTextInput, { color: colors.subtleText, borderBottomColor: colors.border }]}
+            value={exercise?.subtitle}
+            onChangeText={(text) =>
+              updateExercise(programId, seanceId, exerciseId, { subtitle: text })
             }
-            setIsAddSetModalVisible(true);
-          }}
-          style={[styles.addButton, { backgroundColor: colors.primary }]}
-          hitSlop={12}
-        >
-          <Text style={styles.addButtonText}>+</Text>
-        </Pressable>
-      </View>
+            placeholder="Sous-titre (ex: 4 séries)"
+            placeholderTextColor={colors.subtleText}
+          />
+        ) : (
+          exercise?.subtitle ? <Text style={[styles.subtitle, { color: colors.subtleText }]}>{exercise.subtitle}</Text> : null
+        )}
 
-      {isEditing ? (
-        <TextInput
-          style={[styles.subtitle, styles.itemTextInput, { color: colors.subtleText, borderBottomColor: colors.border }]}
-          value={exercise?.subtitle}
-          onChangeText={(text) =>
-            updateExercise(programId, seanceId, exerciseId, { subtitle: text })
-          }
-          placeholder="Sous-titre (ex: 4 séries)"
-          placeholderTextColor={colors.subtleText}
-        />
-      ) : (
-        exercise?.subtitle ? <Text style={[styles.subtitle, { color: colors.subtleText }]}>{exercise.subtitle}</Text> : null
-      )}
-
-      {setsByDate.length > 0 && (
-        <>
-          {setsByDate.map((group) => (
-            <View key={group.dateKey} style={styles.dateGroupContainer}>
-              <View style={[styles.recapBanner, { backgroundColor: colors.primary }]}>
-                <Text style={styles.recapDate}>{formatDateKey(group.dateKey)}</Text>
-                <View style={styles.recapTotalsContainer}>
-                  <Text style={styles.recapText}>
-                    total {group.totalReps} reps {group.totalVolume} Kg
-                  </Text>
-                </View>
+        {setsByDate.map((group) => (
+          <View key={group.dateKey} style={styles.dateGroupContainer}>
+            <Pressable
+              onPress={() => openNoteModal(group.dateKey)}
+              accessibilityRole="button"
+              accessibilityLabel={`Notes de la séance du ${formatDateKey(group.dateKey)}`}
+              style={({ pressed }) => [
+                styles.recapBanner,
+                { backgroundColor: colors.primary },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text style={styles.recapDate}>{formatDateKey(group.dateKey)}</Text>
+              <View style={styles.recapTotalsContainer}>
+                <Text style={styles.recapText}>
+                  total {group.totalReps} reps {group.totalVolume} Kg
+                </Text>
               </View>
+              {seance?.notesByDate?.[group.dateKey] ? (
+                <Text style={styles.recapNoteIcon}>📝</Text>
+              ) : null}
+              {isEditing ? <Text style={styles.recapEditHint}>modifier</Text> : null}
+            </Pressable>
 
-              <FlatList
-                data={group.sets}
-                keyExtractor={(item) => item.id}
-                style={styles.setsList}
-                renderItem={({ item, index }) => (
-                  <Pressable
-                    disabled={!isEditing}
-                    onPress={() => openEditSetModal(item)}
-                    style={({ pressed }) => [
-                      styles.setRow,
-                      isEditing && styles.editableSetRow,
-                      isEditing && pressed && { opacity: 0.7 },
-                    ]}
-                  >
-                    <Text style={[styles.setLine, { color: colors.text, flex: 1 }]}>
-                      {`Série ${String(index + 1).padStart(2, ' ')}   ${String(item.reps).padStart(
-                        3,
-                        ' '
-                      )} X ${formatSetWeight(item).padStart(5, ' ')} Kg`}
-                    </Text>
-                    <IntensityIndicator
-                      value={item.intensity}
-                      onChange={(intensity) =>
-                        updateSet(programId, seanceId, exerciseId, item.id, { intensity })
-                      }
-                    />
-                    {isEditing ? (
-                      <Text style={[styles.editSetHintText, { color: colors.primary }]}>modifier</Text>
-                    ) : null}
-                  </Pressable>
-                )}
-              />
+            <View style={styles.setsList}>
+              {group.sets.map((item, index) => (
+                <Pressable
+                  key={item.id}
+                  disabled={!isEditing}
+                  onPress={() => openEditSetModal(item)}
+                  style={({ pressed }) => [
+                    styles.setRow,
+                    isEditing && styles.editableSetRow,
+                    isEditing && pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.setLine, { color: colors.text, flex: 1 }]}>
+                    {`Série ${String(index + 1).padStart(2, ' ')}   ${String(item.reps).padStart(
+                      3,
+                      ' '
+                    )} X ${formatSetWeight(item).padStart(5, ' ')} Kg`}
+                  </Text>
+                  <IntensityIndicator
+                    value={item.intensity}
+                    onChange={(intensity) =>
+                      updateSet(item.id, { intensity })
+                    }
+                  />
+                  {isEditing ? (
+                    <Text style={[styles.editSetHintText, { color: colors.primary }]}>modifier</Text>
+                  ) : null}
+                </Pressable>
+              ))}
             </View>
-          ))}
-        </>
-      )}
+          </View>
+        ))}
+      </ScrollView>
 
       <Modal
         visible={isEditSetModalVisible}
@@ -385,15 +546,8 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
 
             <ScrollView contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
               <View style={styles.editFieldGroup}>
-                <Text style={[styles.editFieldLabel, { color: colors.subtleText }]}>Date (YYYY-MM-DD)</Text>
-                <TextInput
-                  style={[styles.editFieldInput, { color: colors.text, borderColor: colors.border }]}
-                  value={editDateValue}
-                  onChangeText={setEditDateValue}
-                  placeholder="2026-09-10"
-                  placeholderTextColor={colors.subtleText}
-                  autoCapitalize="none"
-                />
+                <Text style={[styles.editFieldLabel, { color: colors.subtleText }]}>Date</Text>
+                <DatePicker value={editDateValue} onChange={setEditDateValue} />
               </View>
 
               <View style={styles.modalCounterRow}>
@@ -402,7 +556,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
               </View>
               <NumericKeypad
                 value={editRepsValue}
-                onDigitPress={(digit) => setEditRepsValue((v) => v + digit)}
+                onDigitPress={(digit) => setEditRepsValue((v) => appendReps(v, digit))}
                 onDeletePress={() => setEditRepsValue((v) => v.slice(0, -1))}
               />
 
@@ -418,7 +572,8 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
               </View>
               <NumericKeypad
                 value={editWeightValue}
-                onDigitPress={(digit) => setEditWeightValue((v) => v + digit)}
+                allowDecimal
+                onDigitPress={(digit) => setEditWeightValue((v) => appendWeight(v, digit))}
                 onDeletePress={() => {
                   if (editWeightValue) {
                     setEditWeightValue((v) => v.slice(0, -1));
@@ -478,7 +633,7 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
               </View>
               <NumericKeypad
                 value={repsValue}
-                onDigitPress={(digit) => setRepsValue((v) => v + digit)}
+                onDigitPress={(digit) => setRepsValue((v) => appendReps(v, digit))}
                 onDeletePress={() => setRepsValue((v) => v.slice(0, -1))}
               />
 
@@ -494,7 +649,8 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
               </View>
               <NumericKeypad
                 value={weightValue}
-                onDigitPress={(digit) => setWeightValue((v) => v + digit)}
+                allowDecimal
+                onDigitPress={(digit) => setWeightValue((v) => appendWeight(v, digit))}
                 onDeletePress={() => {
                   if (weightValue) {
                     setWeightValue((v) => v.slice(0, -1));
@@ -516,12 +672,146 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal
+        visible={isGroupDateModalVisible}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={closeGroupDateModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardRoot}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={closeGroupDateModal}>
+            <Pressable
+              style={[
+                styles.modalSheet,
+                styles.modalSheetCompact,
+                { backgroundColor: colors.background, maxHeight: '90%' },
+              ]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.modalHeaderRow}>
+                <Pressable onPress={closeGroupDateModal} hitSlop={12}>
+                  <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
+                </Pressable>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Déplacer la séance</Text>
+                <View style={styles.modalHeaderSpacer} />
+              </View>
+
+              <ScrollView
+                contentContainerStyle={styles.modalScrollContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.editFieldGroup}>
+                  <Text style={[styles.editFieldLabel, { color: colors.subtleText }]}>Nouvelle date</Text>
+                  <DatePicker value={groupDateValue} onChange={setGroupDateValue} />
+                </View>
+
+                <Text style={[styles.groupDateHint, { color: colors.subtleText }]}>
+                  Toutes les séries de ce bandeau seront déplacées vers cette date.
+                </Text>
+
+                <Pressable
+                  style={[styles.modalValidateButton, { backgroundColor: colors.primary }]}
+                  onPress={handleSaveGroupDate}
+                >
+                  <Text style={styles.modalValidateButtonText}>Déplacer la séance</Text>
+                </Pressable>
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={isNoteModalVisible}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={closeNoteModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardRoot}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable
+            style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}
+            onPress={closeNoteModal}
+          >
+            <Pressable
+              style={[
+                styles.modalSheet,
+                styles.modalSheetCompact,
+                { backgroundColor: colors.background, maxHeight: '90%' },
+              ]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.modalHeaderRow}>
+                <Pressable onPress={closeNoteModal} hitSlop={12}>
+                  <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
+                </Pressable>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>
+                  Notes du {selectedNoteDateKey ? formatDateKey(selectedNoteDateKey) : ''}
+                </Text>
+                <View style={styles.modalHeaderSpacer} />
+              </View>
+
+              <ScrollView
+                contentContainerStyle={styles.modalScrollContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <TextInput
+                  style={[
+                    styles.noteInput,
+                    { color: colors.text, borderColor: colors.border, backgroundColor: colors.card },
+                  ]}
+                  value={noteValue}
+                  onChangeText={(text) => setNoteValue(text.slice(0, NOTE_MAX_LENGTH))}
+                  placeholder="Notes sur cette séance..."
+                  placeholderTextColor={colors.subtleText}
+                  multiline
+                  maxLength={NOTE_MAX_LENGTH}
+                  textAlignVertical="top"
+                />
+                <Text style={[styles.noteCounter, { color: colors.subtleText }]}>
+                  {noteValue.length}/{NOTE_MAX_LENGTH}
+                </Text>
+
+                <Pressable
+                  style={[styles.modalValidateButton, { backgroundColor: colors.primary }]}
+                  onPress={handleSaveNote}
+                >
+                  <Text style={styles.modalValidateButtonText}>Enregistrer la note</Text>
+                </Pressable>
+
+                {isEditing && selectedNoteDateKey && (
+                  <Pressable
+                    style={[styles.modalSecondaryButton, { borderColor: colors.border }]}
+                    onPress={openDateModalFromNote}
+                  >
+                    <Text style={[styles.modalSecondaryButtonText, { color: colors.primary }]}>
+                      Déplacer la séance...
+                    </Text>
+                  </Pressable>
+                )}
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, paddingTop: 60 },
+  contentScroll: { flex: 1 },
+  contentScrollContent: { paddingBottom: 32 },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -571,6 +861,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   recapDate: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  recapEditHint: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  recapNoteIcon: { fontSize: 14, marginLeft: 8 },
   recapTotalsContainer: { flex: 1, alignItems: 'center' },
   recapText: { fontSize: 14, fontWeight: '600', color: '#fff' },
   dateGroupContainer: { marginBottom: 14 },
@@ -601,6 +893,7 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlignVertical: 'center',
   },
+  modalKeyboardRoot: { flex: 1 },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
@@ -614,6 +907,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
   },
+  modalSheetCompact: { height: 'auto', paddingBottom: 24 },
   modalHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -625,14 +919,18 @@ const styles = StyleSheet.create({
   modalHeaderSpacer: { width: 20 },
   modalScrollContent: { paddingBottom: 24 },
   editFieldGroup: { marginTop: 4, marginBottom: 10 },
+  groupDateHint: { fontSize: 13, lineHeight: 18 },
   editFieldLabel: { fontSize: 13, marginBottom: 6 },
-  editFieldInput: {
+  noteInput: {
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
+    minHeight: 120,
+    marginBottom: 4,
   },
+  noteCounter: { fontSize: 12, textAlign: 'right' },
   modalCounterRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -661,4 +959,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   modalDeleteButtonText: { fontSize: 15, fontWeight: '700' },
+  modalSecondaryButton: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  modalSecondaryButtonText: { fontSize: 15, fontWeight: '700' },
 });
