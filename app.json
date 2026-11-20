@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "fitness-tracker",
+    "name": "StoicFit",
     "slug": "fitness-tracker",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,7 +11,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#F4F1E8",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -31,12 +31,45 @@
         {
           "photosPermission": "L'application a besoin d'accéder à vos photos pour illustrer vos programmes."
         }
-      ]
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "CaloriesSmall",
+              "label": "Calories",
+              "description": "Calories restantes aujourd’hui",
+              "minWidth": "110dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widgets/widget-calories.png"
+            },
+            {
+              "name": "NutritionMedium",
+              "label": "Nutrition du jour",
+              "description": "Calories, macros et hydratation du jour",
+              "minWidth": "250dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widgets/widget-nutrition.png"
+            }
+          ]
+        }
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {
         "projectId": "c7c24c91-1545-489c-9d15-c7141bb5707b"
       }
-    }
+    },
+    "scheme": "stoicfit"
   }
 }

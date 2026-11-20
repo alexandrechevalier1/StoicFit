@@ -6,7 +6,12 @@ import type { CompletedSeance, SetIntensity } from '../models';
 import type { ProfilStackParamList } from '../navigation/RootNavigator';
 import { useProgramStore } from '../store/programStore';
 import { useWorkoutHistory } from '../hooks/useWorkoutHistory';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useThemeColors } from '../theme/useThemeColors';
+import { radius, SCREEN_PADDING, spacing, typography } from '../theme/tokens';
+import { formatInteger, formatRelativeDay, formatWeight } from '../utils/format';
+import { pluralize } from '../utils/confirm';
+import { EmptyState, ScreenHeader } from '../components/ui';
 
 type Props = NativeStackScreenProps<ProfilStackParamList, 'Analytics'>;
 
@@ -86,10 +91,10 @@ const MONTH_SHORT_LABELS = [
 
 const WEEKDAY_LABELS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
-const INTENSITY_META: { key: SetIntensity; label: string; color: string }[] = [
-  { key: 'faible', label: 'Faible', color: '#4CD964' },
-  { key: 'modere', label: 'Modéré', color: '#FF9500' },
-  { key: 'intense', label: 'Intense', color: '#FF3B30' },
+const INTENSITY_META: { key: SetIntensity; label: string }[] = [
+  { key: 'faible', label: 'Faible' },
+  { key: 'modere', label: 'Modéré' },
+  { key: 'intense', label: 'Intense' },
 ];
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
@@ -157,12 +162,6 @@ function formatShortDate(dateIso: string) {
   return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}`;
 }
 
-function formatWeight(value: number) {
-  if (Number.isInteger(value)) {
-    return String(value);
-  }
-  return value.toFixed(1).replace('.', ',');
-}
 
 function seanceVolume(seance: CompletedSeance, exerciseFilter: string) {
   return seance.exercises.reduce((exerciseSum, exercise) => {
@@ -256,12 +255,10 @@ function computeWeeklyVolumes(history: CompletedSeance[], exerciseFilter: string
 function BarChart({
   data,
   maxValue,
-  height = 130,
+  height = 120,
   showValues = false,
   showLabels = true,
-  valueFontSize = 10,
-  labelFontSize = 10,
-  maxBarWidth = 34,
+  minSlots = 6,
   formatValue,
 }: {
   data: BarDatum[];
@@ -269,51 +266,45 @@ function BarChart({
   height?: number;
   showValues?: boolean;
   showLabels?: boolean;
-  valueFontSize?: number;
-  labelFontSize?: number;
-  maxBarWidth?: number;
+  /** Nombre minimal de colonnes : avec peu de données, les barres restent à gauche à taille normale. */
+  minSlots?: number;
   formatValue?: (value: number) => string;
 }) {
   const colors = useThemeColors();
   const hasEmphasis = data.some((item) => item.emphasized);
-  // Le track a un padding de 3 de chaque côté : la barre ne peut pas dépasser le contenu.
-  const innerHeight = Math.max(10, height - 6);
+  const slotWidth = `${100 / Math.max(minSlots, data.length)}%` as const;
 
   return (
     <View style={styles.chartRow}>
       {data.map((item) => {
         const ratio = maxValue > 0 ? item.value / maxValue : 0;
-        const barHeight = item.value > 0 ? Math.max(6, Math.round(ratio * innerHeight)) : 3;
+        const barHeight = item.value > 0 ? Math.max(4, Math.round(ratio * height)) : 2;
+        const isDimmed = hasEmphasis && !item.emphasized;
 
         return (
-          <View key={item.key} style={styles.barColumn}>
+          <View key={item.key} style={[styles.barColumn, { width: slotWidth }]}>
             {showValues ? (
               <Text
                 numberOfLines={1}
-                style={[styles.barValue, { color: colors.subtleText, fontSize: valueFontSize }]}
+                style={[styles.barValue, { color: item.value > 0 ? colors.text : 'transparent' }]}
               >
                 {formatValue ? formatValue(item.value) : String(item.value)}
               </Text>
             ) : null}
-
-            <View style={[styles.barTrack, { height, maxWidth: maxBarWidth, backgroundColor: colors.background }]}>
+            <View style={[styles.barArea, { height }]}>
               <View
                 style={[
                   styles.barFill,
                   {
                     height: barHeight,
-                    backgroundColor: item.color ?? colors.primary,
-                    opacity: hasEmphasis && !item.emphasized ? 0.45 : 1,
+                    backgroundColor: item.value > 0 ? (item.color ?? colors.primary) : colors.cardMuted,
+                    opacity: isDimmed ? 0.4 : 1,
                   },
                 ]}
               />
             </View>
-
             {showLabels ? (
-              <Text
-                numberOfLines={1}
-                style={[styles.barLabel, { color: colors.subtleText, fontSize: labelFontSize }]}
-              >
+              <Text numberOfLines={1} style={[styles.barLabel, { color: colors.subtleText }]}>
                 {item.label}
               </Text>
             ) : null}
@@ -339,25 +330,19 @@ function HorizontalBarList({
     <View style={styles.hbarList}>
       {data.map((item) => {
         const ratio = maxValue > 0 ? item.value / maxValue : 0;
-
         return (
           <View key={item.key} style={styles.hbarItem}>
             <View style={styles.hbarLabelRow}>
-              <Text numberOfLines={1} style={[styles.hbarLabel, { color: colors.text }]}>
+              <Text numberOfLines={1} style={[typography.bodyStrong, styles.flex, { color: colors.text }]}>
                 {item.label}
               </Text>
-              <Text numberOfLines={1} style={[styles.hbarValue, { color: colors.subtleText }]}>
+              <Text numberOfLines={1} style={[typography.caption, styles.tabular, { color: colors.subtleText }]}>
                 {formatValue ? formatValue(item.value) : String(item.value)}
-                {item.detail ? `  ·  ${item.detail}` : ''}
+                {item.detail ? ` · ${item.detail}` : ''}
               </Text>
             </View>
-            <View style={[styles.hbarTrack, { backgroundColor: colors.background }]}>
-              <View
-                style={[
-                  styles.hbarFill,
-                  { width: hbarWidth(ratio), backgroundColor: colors.primary },
-                ]}
-              />
+            <View style={[styles.hbarTrack, { backgroundColor: colors.cardMuted }]}>
+              <View style={[styles.hbarFill, { width: hbarWidth(ratio), backgroundColor: colors.primary }]} />
             </View>
           </View>
         );
@@ -366,28 +351,58 @@ function HorizontalBarList({
   );
 }
 
-function SectionCard({
-  title,
-  caption,
-  children,
-}: {
-  title: string;
-  caption?: string;
-  children: ReactNode;
-}) {
+function SectionCard({ title, caption, children }: { title: string; caption?: string; children: ReactNode }) {
   const colors = useThemeColors();
 
   return (
-    <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View>
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
-        {caption ? (
-          <Text style={[styles.sectionCaption, { color: colors.subtleText }]}>{caption}</Text>
-        ) : null}
+    <View style={[styles.sectionCard, { backgroundColor: colors.card }]}>
+      <View style={styles.sectionHeader}>
+        <Text style={[typography.headline, { color: colors.text }]}>{title}</Text>
+        {caption ? <Text style={[typography.caption, { color: colors.subtleText }]}>{caption}</Text> : null}
       </View>
       {children}
     </View>
   );
+}
+
+function Kpi({ label, value }: { label: string; value: string }) {
+  const colors = useThemeColors();
+  return (
+    <View style={[styles.kpiCard, { backgroundColor: colors.card }]}>
+      <Text style={[typography.number, styles.kpiValue, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit>
+        {value}
+      </Text>
+      <Text style={[typography.caption, { color: colors.subtleText }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const colors = useThemeColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: active }}
+      style={[styles.chip, { backgroundColor: active ? colors.primary : colors.card }]}
+    >
+      <Text style={[typography.captionStrong, { color: active ? colors.onPrimary : colors.text }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function formatDuration(totalMinutes: number) {
+  const minutes = Math.round(totalMinutes);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest > 0 ? `${hours} h ${pad2(rest)}` : `${hours} h`;
+}
+
+function formatKg(value: number) {
+  return `${formatInteger(value)} kg`;
 }
 
 export default function AnalyticsScreen({ navigation }: Props) {
@@ -660,556 +675,347 @@ export default function AnalyticsScreen({ navigation }: Props) {
 
   const weeklyMaxVolume = weeklyVolumes.reduce((max, item) => Math.max(max, item.volumeKg), 0);
   const hasData = scopedHistory.length > 0;
+  const intensityColors: Record<SetIntensity, string> = {
+    faible: colors.success,
+    modere: colors.warning,
+    intense: colors.danger,
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.headerRow}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Text style={[styles.backButton, { color: colors.primary }]}>{'‹ Retour'}</Text>
-        </Pressable>
-        <Text style={[styles.screenTitle, { color: colors.text }]}>Analytics</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader title="Statistiques" onBack={() => navigation.goBack()} />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <SectionCard title="Filtres">
-          <View style={styles.chipRow}>
-            {PERIOD_OPTIONS.map((option) => {
-              const active = period === option.value;
-              return (
-                <Pressable
-                  key={option.value}
-                  onPress={() => setPeriod(option.value)}
-                  style={[
-                    styles.chip,
-                    {
-                      backgroundColor: active ? colors.primary : colors.background,
-                      borderColor: active ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.chipText, { color: active ? '#fff' : colors.text }]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <View style={styles.chipRow}>
-            <Pressable
-              onPress={() => setExerciseFilter('all')}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: exerciseFilter === 'all' ? colors.primary : colors.background,
-                  borderColor: exerciseFilter === 'all' ? colors.primary : colors.border,
-                },
-              ]}
-            >
-              <Text
-                style={[styles.chipText, { color: exerciseFilter === 'all' ? '#fff' : colors.text }]}
+        {/* Filtres */}
+        <View style={[styles.segmented, { backgroundColor: colors.cardMuted }]}>
+          {PERIOD_OPTIONS.map((option) => {
+            const active = period === option.value;
+            return (
+              <Pressable
+                key={option.value}
+                onPress={() => setPeriod(option.value)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                style={[styles.segment, active && [styles.segmentActive, { backgroundColor: colors.card }]]}
               >
-                Tous les exercices
-              </Text>
-            </Pressable>
-            {exerciseOptions.map((option) => {
-              const active = option.value === exerciseFilter;
-              return (
-                <Pressable
-                  key={option.value}
-                  onPress={() => setExerciseFilter(option.value)}
-                  style={[
-                    styles.chip,
-                    {
-                      backgroundColor: active ? colors.primary : colors.background,
-                      borderColor: active ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.chipText, { color: active ? '#fff' : colors.text }]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </SectionCard>
-
-        <View style={styles.kpiGrid}>
-          <View style={[styles.kpiCard, { backgroundColor: colors.card }]}>
-            <Text style={[styles.kpiLabel, { color: colors.subtleText }]}>Volume total</Text>
-            <Text style={[styles.kpiValue, { color: colors.text }]}>
-              {Math.round(totalVolumeKg)} kg
-            </Text>
-          </View>
-          <View style={[styles.kpiCard, { backgroundColor: colors.card }]}>
-            <Text style={[styles.kpiLabel, { color: colors.subtleText }]}>Séances</Text>
-            <Text style={[styles.kpiValue, { color: colors.text }]}>{totalSeances}</Text>
-          </View>
-          <View style={[styles.kpiCard, { backgroundColor: colors.card }]}>
-            <Text style={[styles.kpiLabel, { color: colors.subtleText }]}>Temps total</Text>
-            <Text style={[styles.kpiValue, { color: colors.text }]}>
-              {totalDurationMinutes} min
-            </Text>
-          </View>
+                <Text style={[typography.captionStrong, { color: active ? colors.text : colors.subtleText }]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
-        <View style={styles.kpiGrid}>
-          <View style={[styles.kpiCard, { backgroundColor: colors.card }]}>
-            <Text style={[styles.kpiLabel, { color: colors.subtleText }]}>Durée moy.</Text>
-            <Text style={[styles.kpiValue, { color: colors.text }]}>{avgDurationMinutes} min</Text>
-          </View>
-          <View style={[styles.kpiCard, { backgroundColor: colors.card }]}>
-            <Text style={[styles.kpiLabel, { color: colors.subtleText }]}>Volume / séance</Text>
-            <Text style={[styles.kpiValue, { color: colors.text }]}>{avgVolumePerSeance} kg</Text>
-          </View>
-          <View style={[styles.kpiCard, { backgroundColor: colors.card }]}>
-            <Text style={[styles.kpiLabel, { color: colors.subtleText }]}>Séries totales</Text>
-            <Text style={[styles.kpiValue, { color: colors.text }]}>{totalSeries}</Text>
-          </View>
-        </View>
+        {exerciseOptions.length > 1 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipRow}
+            style={styles.chipScroller}
+          >
+            <Chip label="Tous les exercices" active={exerciseFilter === 'all'} onPress={() => setExerciseFilter('all')} />
+            {exerciseOptions.map((option) => (
+              <Chip
+                key={option.value}
+                label={option.label}
+                active={option.value === exerciseFilter}
+                onPress={() => setExerciseFilter(option.value)}
+              />
+            ))}
+          </ScrollView>
+        ) : null}
 
-        <SectionCard
-          title="Progression par séance"
-          caption={`Volume soulevé par séance (kg) · ${SEANCE_PROGRESS_MAX} dernières`}
-        >
-          {!hasData ? (
-            <Text style={[styles.emptyText, { color: colors.subtleText }]}>
-              Aucune séance enregistrée pour ce filtre.
-            </Text>
-          ) : (
-            <>
+        {!hasData ? (
+          <EmptyState
+            icon="stats-chart-outline"
+            title="Pas encore de statistiques"
+            message={
+              period === 'all'
+                ? 'Enregistrez des séries dans vos exercices : vos graphiques apparaîtront ici.'
+                : 'Aucune séance sur cette période. Essayez « Tout ».'
+            }
+          />
+        ) : (
+          <>
+            <View style={styles.kpiGrid}>
+              <Kpi label="Séances" value={String(totalSeances)} />
+              <Kpi label="Volume total" value={formatKg(totalVolumeKg)} />
+              <Kpi label="Séries" value={formatInteger(totalSeries)} />
+            </View>
+            <View style={styles.kpiGrid}>
+              <Kpi label="Temps total" value={formatDuration(totalDurationMinutes)} />
+              <Kpi label="Durée moyenne" value={formatDuration(avgDurationMinutes)} />
+              <Kpi label="Volume / séance" value={formatKg(avgVolumePerSeance)} />
+            </View>
+
+            <SectionCard
+              title="Progression par séance"
+              caption={`Volume soulevé · ${SEANCE_PROGRESS_MAX} dernières séances`}
+            >
               {volumeTrendPercent !== null ? (
-                <View
-                  style={[
-                    styles.trendBadge,
-                    {
-                      backgroundColor:
-                        volumeTrendPercent >= 0 ? 'rgba(76,217,100,0.15)' : 'rgba(255,59,48,0.15)',
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.trendBadgeText,
-                      { color: volumeTrendPercent >= 0 ? '#4CD964' : colors.danger },
-                    ]}
-                  >
-                    {volumeTrendPercent >= 0 ? '📈' : '📉'} {volumeTrendPercent >= 0 ? '+' : ''}
-                    {volumeTrendPercent} % de volume entre les deux moitiés de la période
+                <View style={[styles.trendBadge, { backgroundColor: colors.cardMuted }]}>
+                  <Ionicons
+                    name={volumeTrendPercent >= 0 ? 'trending-up' : 'trending-down'}
+                    size={18}
+                    color={volumeTrendPercent >= 0 ? colors.success : colors.danger}
+                  />
+                  <Text style={[typography.captionStrong, styles.flex, { color: colors.text }]}>
+                    <Text style={{ color: volumeTrendPercent >= 0 ? colors.success : colors.danger }}>
+                      {volumeTrendPercent >= 0 ? '+' : ''}
+                      {volumeTrendPercent} %
+                    </Text>{' '}
+                    de volume moyen par rapport au début de la période
                   </Text>
                 </View>
               ) : null}
-
               <BarChart
                 data={seanceProgression}
                 maxValue={maxSeanceVolume}
-                height={110}
+                minSlots={SEANCE_PROGRESS_MAX}
                 showValues
-                valueFontSize={9}
-                formatValue={(value) => String(value)}
+                formatValue={(value) => (value >= 1000 ? `${formatWeight(Math.round(value / 100) / 10)}k` : String(value))}
               />
-            </>
-          )}
-        </SectionCard>
+            </SectionCard>
 
-        <SectionCard title="Records personnels" caption="Meilleur résultat par exercice">
-          {personalRecords.length === 0 ? (
-            <Text style={[styles.emptyText, { color: colors.subtleText }]}>
-              Aucun record disponible pour ce filtre.
-            </Text>
-          ) : (
-            <>
-              {personalRecords.slice(0, 3).map((record, index) => (
-                <View
-                  key={record.exerciseKey}
-                  style={[
-                    styles.podiumRow,
-                    { backgroundColor: colors.background, borderColor: colors.border },
-                  ]}
-                >
-                  <Text style={styles.podiumMedal}>
-                    {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
-                  </Text>
-                  <View style={styles.podiumTexts}>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.recordExercise, { color: colors.text }]}
+            {personalRecords.length > 0 ? (
+              <SectionCard title="Records personnels" caption="Meilleure série par exercice">
+                {personalRecords.slice(0, 8).map((record, index) => (
+                  <View
+                    key={record.exerciseKey}
+                    style={[
+                      styles.recordRow,
+                      index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.rank,
+                        { backgroundColor: index === 0 ? colors.warning : colors.cardMuted },
+                      ]}
                     >
-                      {record.exerciseName}
-                    </Text>
-                    <Text style={[styles.recordDate, { color: colors.subtleText }]}>
-                      {new Date(record.at).toLocaleDateString()}
+                      {index === 0 ? (
+                        <Ionicons name="trophy" size={14} color={colors.onPrimary} />
+                      ) : (
+                        <Text style={[typography.captionStrong, { color: colors.subtleText }]}>{index + 1}</Text>
+                      )}
+                    </View>
+                    <View style={styles.flex}>
+                      <Text numberOfLines={1} style={[typography.bodyStrong, { color: colors.text }]}>
+                        {record.exerciseName}
+                      </Text>
+                      <Text style={[typography.caption, styles.capitalize, { color: colors.subtleText }]}>
+                        {formatRelativeDay(record.at)}
+                      </Text>
+                    </View>
+                    <Text style={[typography.number, { color: colors.text }]}>
+                      {formatWeight(record.weightKg)} kg × {record.reps}
                     </Text>
                   </View>
-                  <Text style={[styles.podiumValue, { color: colors.primary }]}>
-                    {formatWeight(record.weightKg)} kg × {record.reps}
-                  </Text>
-                </View>
-              ))}
+                ))}
+              </SectionCard>
+            ) : null}
 
-              {personalRecords.slice(3, 8).map((record) => (
-                <View
-                  key={record.exerciseKey}
-                  style={[styles.recordRow, { borderBottomColor: colors.border }]}
-                >
-                  <View style={styles.recordTexts}>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.recordExercise, { color: colors.text }]}
-                    >
-                      {record.exerciseName}
-                    </Text>
-                    <Text style={[styles.recordDate, { color: colors.subtleText }]}>
-                      {new Date(record.at).toLocaleDateString()}
-                    </Text>
-                  </View>
-                  <Text style={[styles.recordValue, { color: colors.primary }]}>
-                    {formatWeight(record.weightKg)} kg × {record.reps}
-                  </Text>
-                </View>
-              ))}
-            </>
-          )}
-        </SectionCard>
+            {exerciseTrendCards.length > 0 ? (
+              <SectionCard title="Progression par exercice" caption="Charge maximale à chaque séance">
+                {exerciseTrendCards.map((exercise, index) => {
+                  const visiblePoints = exercise.points.slice(-EXERCISE_POINTS_MAX);
+                  const maxPoint = visiblePoints.reduce((max, point) => Math.max(max, point.value), 0);
 
-        <SectionCard
-          title="Progression par exercice"
-          caption="Poids le plus lourd soulevé à chaque séance (kg)"
-        >
-          {exerciseTrendCards.length === 0 ? (
-            <Text style={[styles.emptyText, { color: colors.subtleText }]}>
-              Aucun exercice à analyser pour ce filtre.
-            </Text>
-          ) : (
-            exerciseTrendCards.map((exercise, index) => {
-              const visiblePoints = exercise.points.slice(-EXERCISE_POINTS_MAX);
-              const maxPoint = visiblePoints.reduce((max, point) => Math.max(max, point.value), 0);
-
-              return (
-                <View
-                  key={exercise.key}
-                  style={[
-                    styles.exerciseBlock,
-                    index > 0
-                      ? {
-                          borderTopWidth: 1,
+                  return (
+                    <View
+                      key={exercise.key}
+                      style={[
+                        styles.exerciseBlock,
+                        index > 0 && {
+                          borderTopWidth: StyleSheet.hairlineWidth,
                           borderTopColor: colors.border,
-                          paddingTop: 12,
-                        }
-                      : null,
-                  ]}
-                >
-                  <View style={styles.exerciseHeaderRow}>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.exerciseName, { color: colors.text }]}
+                          paddingTop: spacing.md,
+                        },
+                      ]}
                     >
-                      {exercise.name}
-                    </Text>
-                    <Text style={[styles.exerciseRecord, { color: colors.primary }]}>
-                      {formatWeight(exercise.bestWeightKg)} kg × {exercise.bestReps}
-                    </Text>
-                  </View>
+                      <View style={styles.exerciseHeaderRow}>
+                        <Text numberOfLines={1} style={[typography.bodyStrong, styles.flex, { color: colors.text }]}>
+                          {exercise.name}
+                        </Text>
+                        <Text style={[typography.number, { color: colors.primary }]}>
+                          {formatWeight(exercise.bestWeightKg)} kg × {exercise.bestReps}
+                        </Text>
+                      </View>
+                      <Text style={[typography.caption, { color: colors.subtleText }]}>
+                        {pluralize(exercise.seances, 'séance')} · {formatKg(exercise.volumeKg)} soulevés
+                      </Text>
+                      {maxPoint <= 0 ? (
+                        <Text style={[typography.caption, styles.italic, { color: colors.subtleText }]}>
+                          Poids du corps, sans lest enregistré
+                        </Text>
+                      ) : (
+                        <BarChart
+                          data={visiblePoints}
+                          maxValue={maxPoint}
+                          height={48}
+                          minSlots={EXERCISE_POINTS_MAX}
+                          showValues
+                          showLabels={false}
+                          formatValue={formatWeight}
+                        />
+                      )}
+                    </View>
+                  );
+                })}
+              </SectionCard>
+            ) : null}
 
-                  <Text style={[styles.exerciseMeta, { color: colors.subtleText }]}>
-                    {exercise.seances} séance{exercise.seances > 1 ? 's' : ''} ·{' '}
-                    {Math.round(exercise.volumeKg)} kg soulevés
-                  </Text>
+            {volumeByExercise.length > 1 ? (
+              <SectionCard title="Volume par exercice" caption="Part du volume total de la période">
+                <HorizontalBarList
+                  data={volumeByExercise.map((exercise) => ({
+                    key: exercise.key,
+                    label: exercise.name,
+                    value: exercise.volumeKg,
+                    detail:
+                      exerciseTrendsTotalVolume > 0
+                        ? `${Math.round((exercise.volumeKg / exerciseTrendsTotalVolume) * 100)} %`
+                        : undefined,
+                  }))}
+                  maxValue={maxExerciseVolume}
+                  formatValue={formatKg}
+                />
+              </SectionCard>
+            ) : null}
 
-                  {maxPoint <= 0 ? (
-                    <Text style={[styles.exerciseBodyweight, { color: colors.subtleText }]}>
-                      Poids de corps — aucun lest enregistré
-                    </Text>
-                  ) : (
-                    <BarChart
-                      data={visiblePoints}
-                      maxValue={maxPoint}
-                      height={54}
-                      showValues
-                      showLabels={false}
-                      valueFontSize={9}
-                      formatValue={formatWeight}
-                    />
-                  )}
-                </View>
-              );
-            })
-          )}
-        </SectionCard>
-
-        <SectionCard
-          title="Volume par exercice"
-          caption="Part du volume total de la période"
-        >
-          {volumeByExercise.length === 0 ? (
-            <Text style={[styles.emptyText, { color: colors.subtleText }]}>
-              Aucun volume à répartir pour ce filtre.
-            </Text>
-          ) : (
-            <HorizontalBarList
-              data={volumeByExercise.map((exercise) => ({
-                key: exercise.key,
-                label: exercise.name,
-                value: exercise.volumeKg,
-                detail:
-                  exerciseTrendsTotalVolume > 0
-                    ? `${Math.round(
-                        (exercise.volumeKg / exerciseTrendsTotalVolume) * 100
-                      )} %`
-                    : undefined,
-              }))}
-              maxValue={maxExerciseVolume}
-              formatValue={(value) => `${Math.round(value)} kg`}
-            />
-          )}
-        </SectionCard>
-
-        <SectionCard title="Fréquence d'entraînement" caption="Séances par mois">
-          {!hasData ? (
-            <Text style={[styles.emptyText, { color: colors.subtleText }]}>
-              Aucune séance à comptabiliser.
-            </Text>
-          ) : (
-            <>
+            <SectionCard title="Régularité" caption="Séances par mois, puis par jour de la semaine">
               <BarChart
                 data={monthlyFrequency.map((item) => ({
                   key: item.key,
                   label: item.label,
                   value: item.count,
-                  emphasized:
-                    item.count > 0 && item.count === maxMonthlyCount,
+                  emphasized: item.count > 0 && item.count === maxMonthlyCount,
                 }))}
                 maxValue={maxMonthlyCount}
-                height={90}
+                height={80}
+                minSlots={FREQUENCY_MONTHS}
                 showValues
-                labelFontSize={9}
               />
-              <Text style={[styles.subTitle, { color: colors.text }]}>Jours de la semaine</Text>
+              <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <BarChart
                 data={weekdayFrequency}
-                maxValue={weekdayFrequency.reduce(
-                  (max, item) => Math.max(max, item.value),
-                  0
-                )}
-                height={70}
+                maxValue={weekdayFrequency.reduce((max, item) => Math.max(max, item.value), 0)}
+                height={64}
+                minSlots={7}
                 showValues
-                labelFontSize={9}
               />
-            </>
-          )}
-        </SectionCard>
+            </SectionCard>
 
-        <SectionCard title="Durée moyenne par séance" caption="Minutes par mois">
-          {!hasData || maxMonthlyDuration <= 0 ? (
-            <Text style={[styles.emptyText, { color: colors.subtleText }]}>
-              Aucune durée enregistrée pour ce filtre.
-            </Text>
-          ) : (
-            <BarChart
-              data={monthlyFrequency.map((item) => ({
-                key: item.key,
-                label: item.label,
-                value: item.avgDuration,
-              }))}
-              maxValue={maxMonthlyDuration}
-              height={90}
-              showValues
-              labelFontSize={9}
-              formatValue={(value) => `${value}'`}
-            />
-          )}
-        </SectionCard>
+            {maxMonthlyDuration > 0 ? (
+              <SectionCard title="Durée moyenne d'une séance" caption="En minutes, par mois">
+                <BarChart
+                  data={monthlyFrequency.map((item) => ({ key: item.key, label: item.label, value: item.avgDuration }))}
+                  maxValue={maxMonthlyDuration}
+                  height={80}
+                  minSlots={FREQUENCY_MONTHS}
+                  showValues
+                />
+              </SectionCard>
+            ) : null}
 
-        <SectionCard
-          title="Intensité des séries"
-          caption="Répartition faible / modéré / intense des séries enregistrées"
-        >
-          {intensityTotal === 0 ? (
-            <Text style={[styles.emptyText, { color: colors.subtleText }]}>
-              Aucune série enregistrée pour ce filtre.
-            </Text>
-          ) : (
-            <BarChart
-              data={INTENSITY_META.map((meta) => ({
-                key: meta.key,
-                label: meta.label,
-                value: intensityCounts[meta.key],
-                color: meta.color,
-              }))}
-              maxValue={Math.max(
-                intensityCounts.faible,
-                intensityCounts.modere,
-                intensityCounts.intense
-              )}
-              height={90}
-              showValues
-              valueFontSize={11}
-              labelFontSize={11}
-              maxBarWidth={56}
-              formatValue={(value) =>
-                `${value} (${Math.round((value / intensityTotal) * 100)} %)`
-              }
-            />
-          )}
-        </SectionCard>
+            {intensityTotal > 0 ? (
+              <SectionCard title="Intensité des séries" caption="Ressenti noté sur chaque série">
+                <View style={[styles.stackedBar, { backgroundColor: colors.cardMuted }]}>
+                  {INTENSITY_META.map((meta) =>
+                    intensityCounts[meta.key] > 0 ? (
+                      <View
+                        key={meta.key}
+                        style={{ flex: intensityCounts[meta.key], backgroundColor: intensityColors[meta.key] }}
+                      />
+                    ) : null
+                  )}
+                </View>
+                <View style={styles.intensityLegend}>
+                  {INTENSITY_META.map((meta) => (
+                    <View key={meta.key} style={styles.intensityItem}>
+                      <View style={[styles.legendDot, { backgroundColor: intensityColors[meta.key] }]} />
+                      <Text style={[typography.caption, { color: colors.subtleText }]}>{meta.label}</Text>
+                      <Text style={[typography.captionStrong, styles.tabular, { color: colors.text }]}>
+                        {Math.round((intensityCounts[meta.key] / intensityTotal) * 100)} %
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </SectionCard>
+            ) : null}
 
-        <SectionCard
-          title="Évolution hebdomadaire"
-          caption="Volume soulevé par semaine (kg)"
-        >
-          {weeklyVolumes.length === 0 ? (
-            <Text style={[styles.emptyText, { color: colors.subtleText }]}>
-              Aucune évolution à afficher.
-            </Text>
-          ) : (
-            <BarChart
-              data={weeklyVolumes.map((item) => ({
-                key: item.weekKey,
-                label: item.label,
-                value: Math.round(item.volumeKg),
-              }))}
-              maxValue={weeklyMaxVolume}
-              height={110}
-              showValues
-              valueFontSize={9}
-              labelFontSize={9}
-            />
-          )}
-        </SectionCard>
+            {weeklyVolumes.length > 1 ? (
+              <SectionCard title="Évolution hebdomadaire" caption="Volume soulevé par semaine">
+                <BarChart
+                  data={weeklyVolumes.map((item) => ({
+                    key: item.weekKey,
+                    label: item.label,
+                    value: Math.round(item.volumeKg),
+                  }))}
+                  maxValue={weeklyMaxVolume}
+                  minSlots={8}
+                  showValues
+                  formatValue={(value) => (value >= 1000 ? `${formatWeight(Math.round(value / 100) / 10)}k` : String(value))}
+                />
+              </SectionCard>
+            ) : null}
+          </>
+        )}
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 56, paddingHorizontal: 16 },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+  container: { flex: 1 },
+  flex: { flex: 1 },
+  tabular: { fontVariant: ['tabular-nums'] },
+  italic: { fontStyle: 'italic' },
+  capitalize: { textTransform: 'capitalize' },
+  scrollContent: { paddingHorizontal: SCREEN_PADDING, paddingBottom: spacing.xxl, gap: spacing.md },
+  segmented: { flexDirection: 'row', borderRadius: radius.md, padding: 3 },
+  segment: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 36, borderRadius: radius.sm },
+  segmentActive: {
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
-  backButton: { fontSize: 16, fontWeight: '600' },
-  screenTitle: { fontSize: 20, fontWeight: '700' },
-  headerSpacer: { width: 64 },
-  scrollContent: { paddingBottom: 24, gap: 14 },
-  sectionCard: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
-    gap: 10,
-  },
-  sectionTitle: { fontSize: 18, fontWeight: '700' },
-  sectionCaption: { fontSize: 12, marginTop: 2 },
-  subTitle: { fontSize: 13, fontWeight: '700', marginTop: 4 },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  chipText: { fontSize: 13, fontWeight: '600' },
-  kpiGrid: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  kpiCard: {
-    flex: 1,
-    borderRadius: 14,
-    padding: 12,
-    minHeight: 84,
-    justifyContent: 'space-between',
-  },
-  kpiLabel: { fontSize: 12 },
-  kpiValue: { fontSize: 18, fontWeight: '800' },
-  emptyText: { fontSize: 14 },
-  chartRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 6,
-    minHeight: 60,
-  },
-  barColumn: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  barTrack: {
-    width: '100%',
-    borderRadius: 8,
-    justifyContent: 'flex-end',
-    padding: 3,
-  },
-  barFill: {
-    width: '100%',
-    borderRadius: 6,
-  },
-  barValue: { fontSize: 10, marginTop: 6, fontWeight: '700' },
+  chipScroller: { marginHorizontal: -SCREEN_PADDING },
+  chipRow: { gap: spacing.sm, paddingHorizontal: SCREEN_PADDING },
+  chip: { borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  sectionCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  sectionHeader: { gap: 2 },
+  kpiGrid: { flexDirection: 'row', gap: spacing.sm },
+  kpiCard: { flex: 1, borderRadius: radius.lg, padding: spacing.md, gap: 2 },
+  kpiValue: { fontSize: 18 },
+  chartRow: { flexDirection: 'row', alignItems: 'flex-end' },
+  barColumn: { alignItems: 'center', paddingHorizontal: 3 },
+  barArea: { width: '100%', justifyContent: 'flex-end', alignItems: 'center' },
+  barFill: { width: '100%', maxWidth: 28, borderRadius: 4 },
+  barValue: { fontSize: 10, fontWeight: '600', marginBottom: 4, fontVariant: ['tabular-nums'] },
   barLabel: { fontSize: 10, marginTop: 4 },
-  hbarList: { gap: 12 },
-  hbarItem: { gap: 5 },
-  hbarLabelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-  },
-  hbarLabel: { fontSize: 14, fontWeight: '600', flex: 1 },
-  hbarValue: { fontSize: 12, fontWeight: '600' },
-  hbarTrack: {
-    height: 12,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  hbarFill: {
-    height: '100%',
-    borderRadius: 6,
-  },
+  divider: { height: StyleSheet.hairlineWidth },
+  hbarList: { gap: spacing.md },
+  hbarItem: { gap: spacing.xs + 2 },
+  hbarLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  hbarTrack: { height: 8, borderRadius: 4, overflow: 'hidden' },
+  hbarFill: { height: '100%', borderRadius: 4 },
   trendBadge: {
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  trendBadgeText: { fontSize: 13, fontWeight: '700' },
-  podiumRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  podiumMedal: { fontSize: 22 },
-  podiumTexts: { flex: 1 },
-  podiumValue: { fontSize: 15, fontWeight: '800' },
-  recordTexts: { flex: 1 },
-  recordRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-    borderBottomWidth: 1,
-    paddingBottom: 10,
-    marginBottom: 10,
-  },
-  recordExercise: { fontSize: 15, fontWeight: '600' },
-  recordDate: { fontSize: 12, marginTop: 2 },
-  recordValue: { fontSize: 16, fontWeight: '800' },
-  exerciseBlock: { gap: 6 },
-  exerciseHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 10,
-  },
-  exerciseName: { fontSize: 15, fontWeight: '700', flex: 1 },
-  exerciseRecord: { fontSize: 14, fontWeight: '800' },
-  exerciseMeta: { fontSize: 12 },
-  exerciseBodyweight: { fontSize: 12, fontStyle: 'italic', paddingVertical: 6 },
+  recordRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs + 2 },
+  rank: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  exerciseBlock: { gap: spacing.xs + 2 },
+  exerciseHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  stackedBar: { flexDirection: 'row', height: 14, borderRadius: 7, overflow: 'hidden', gap: 2 },
+  intensityLegend: { flexDirection: 'row', justifyContent: 'space-between' },
+  intensityItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
 });

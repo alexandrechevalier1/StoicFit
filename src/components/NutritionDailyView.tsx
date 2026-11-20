@@ -1,15 +1,19 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { DailyNutritionLog, MealSlot, NutritionGoals, NutritionTotals } from '../models';
 import { getLocalDateKey, parseLocalDateKey } from '../utils/nutritionDate';
 import CalorieProgressCard from './CalorieProgressCard';
 import { useThemeColors } from '../theme/useThemeColors';
+import { radius, spacing, typography } from '../theme/tokens';
+import { formatInteger, formatRelativeDay, formatWeight } from '../utils/format';
+import { IconButton, ProgressBar } from './ui';
 
 const MEAL_ORDER: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack'];
 const MEAL_LABELS: Record<MealSlot, string> = {
   breakfast: 'Petit-déjeuner',
   lunch: 'Déjeuner',
   dinner: 'Dîner',
-  snack: 'Snacks',
+  snack: 'Collations',
 };
 
 type Props = {
@@ -22,11 +26,12 @@ type Props = {
   onToday: () => void;
   onAddFood: (slot: MealSlot) => void;
   onRemoveFood: (slot: MealSlot, foodId: string) => void;
-  onOpenGoals: () => void;
   onAddWater: (amountMl: number) => void;
 };
 
 const WATER_QUICK_ADD_ML = [250, 500];
+
+const formatLiters = (ml: number) => `${formatWeight(Math.round(ml / 100) / 10)} L`;
 
 export default function NutritionDailyView({
   dateKey,
@@ -38,128 +43,130 @@ export default function NutritionDailyView({
   onToday,
   onAddFood,
   onRemoveFood,
-  onOpenGoals,
   onAddWater,
 }: Props) {
   const colors = useThemeColors();
-  const todayKey = getLocalDateKey();
-  const isToday = dateKey === todayKey;
-  const dateLabel = parseLocalDateKey(dateKey).toLocaleDateString('fr-FR', {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-  });
-
-  const caloriesRemaining = Math.max(0, goals.calories - totals.calories);
+  const isToday = dateKey === getLocalDateKey();
+  const date = parseLocalDateKey(dateKey);
+  const longDate = date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
-    <View>
-      <View style={styles.dateHeaderRow}>
-        <Pressable style={[styles.dateNavButton, { borderColor: colors.border }]} onPress={onPreviousDay}>
-          <Text style={[styles.dateNavText, { color: colors.text }]}>{'‹'}</Text>
-        </Pressable>
-        <Pressable style={styles.dateCenter} onPress={onToday}>
-          <Text style={[styles.dateLabel, { color: colors.text }]}>{dateLabel}</Text>
-          <Text style={[styles.dateSubtitle, { color: colors.subtleText }]}>
-            {isToday ? 'Aujourd’hui' : dateKey}
+    <View style={styles.container}>
+      <View style={styles.dateRow}>
+        <IconButton icon="chevron-back" label="Jour précédent" variant="tinted" size={40} onPress={onPreviousDay} />
+        <View style={styles.dateCenter}>
+          <Text style={[typography.headline, styles.capitalize, { color: colors.text }]}>
+            {formatRelativeDay(date.toISOString())}
           </Text>
-        </Pressable>
-        <Pressable style={[styles.dateNavButton, { borderColor: colors.border }]} onPress={onNextDay}>
-          <Text style={[styles.dateNavText, { color: colors.text }]}>{'›'}</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.quickActionsRow}>
-        <Pressable
-          style={[styles.todayButton, { backgroundColor: colors.card, borderColor: colors.border }]}
-          onPress={onToday}
-        >
-          <Text style={[styles.todayButtonText, { color: colors.text }]}>Aujourd’hui</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.todayButton, { backgroundColor: colors.card, borderColor: colors.border }]}
-          onPress={onOpenGoals}
-        >
-          <Text style={[styles.todayButtonText, { color: colors.primary }]}>Objectifs</Text>
-        </Pressable>
+          {isToday ? (
+            <Text style={[typography.caption, { color: colors.subtleText }]}>{longDate}</Text>
+          ) : (
+            <Pressable onPress={onToday} hitSlop={8} accessibilityRole="button">
+              <Text style={[typography.captionStrong, { color: colors.primary }]}>Revenir à aujourd'hui</Text>
+            </Pressable>
+          )}
+        </View>
+        <IconButton icon="chevron-forward" label="Jour suivant" variant="tinted" size={40} onPress={onNextDay} />
       </View>
 
       <CalorieProgressCard consumedCalories={totals.calories} targetCalories={goals.calories} />
 
-      <View style={[styles.remainingCard, { backgroundColor: colors.card }]}>
-        <Text style={[styles.remainingLabel, { color: colors.subtleText }]}>Calories restantes</Text>
-        <Text style={[styles.remainingValue, { color: colors.text }]}>{caloriesRemaining} kcal</Text>
+      <View style={styles.macrosRow}>
+        <MacroTile label="Protéines" value={totals.proteinG} target={goals.proteinG} color={colors.protein} />
+        <MacroTile label="Glucides" value={totals.carbsG} target={goals.carbsG} color={colors.carbs} />
+        <MacroTile label="Lipides" value={totals.fatG} target={goals.fatG} color={colors.fat} />
       </View>
 
-      <View style={styles.macrosGrid}>
-        <MacroTile label="Protéines" value={totals.proteinG} target={goals.proteinG} color="#D9A441" />
-        <MacroTile label="Glucides" value={totals.carbsG} target={goals.carbsG} color="#3E6FD9" />
-        <MacroTile label="Lipides" value={totals.fatG} target={goals.fatG} color="#D9534F" />
-      </View>
-
-      <View style={[styles.waterCard, { backgroundColor: colors.card }]}>
-        <View style={styles.waterHeaderRow}>
-          <Text style={[styles.waterTitle, { color: colors.text }]}>Hydratation</Text>
-          <Text style={[styles.waterValue, { color: colors.primary }]}>
-            {totals.waterMl} / {goals.waterMl} ml
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
+        <View style={styles.rowBetween}>
+          <View style={styles.inlineIcon}>
+            <Ionicons name="water" size={18} color={colors.water} />
+            <Text style={[typography.headline, { color: colors.text }]}>Hydratation</Text>
+          </View>
+          <Text style={[typography.number, { color: colors.text }]}>
+            {formatLiters(totals.waterMl)}
+            <Text style={[typography.caption, { color: colors.subtleText }]}> / {formatLiters(goals.waterMl)}</Text>
           </Text>
         </View>
-        <View style={[styles.waterBarTrack, { backgroundColor: colors.border }]}>
-          <View
-            style={[
-              styles.waterBarFill,
-              { width: `${Math.min(100, (totals.waterMl / Math.max(1, goals.waterMl)) * 100)}%` },
-            ]}
-          />
-        </View>
-        <View style={styles.waterQuickAddRow}>
+        <ProgressBar progress={totals.waterMl / Math.max(1, goals.waterMl)} color={colors.water} height={10} />
+        <View style={styles.waterButtons}>
           {WATER_QUICK_ADD_ML.map((amount) => (
             <Pressable
               key={amount}
-              style={[styles.waterQuickAddButton, { borderColor: colors.primary }]}
               onPress={() => onAddWater(amount)}
+              accessibilityRole="button"
+              accessibilityLabel={`Ajouter ${amount} millilitres d'eau`}
+              style={({ pressed }) => [
+                styles.waterButton,
+                { backgroundColor: colors.cardMuted },
+                pressed && { opacity: 0.6 },
+              ]}
             >
-              <Text style={[styles.waterQuickAddText, { color: colors.primary }]}>+{amount} ml</Text>
+              <Ionicons name="add" size={16} color={colors.water} />
+              <Text style={[typography.captionStrong, { color: colors.text }]}>{amount} ml</Text>
             </Pressable>
           ))}
         </View>
       </View>
 
       {MEAL_ORDER.map((slot) => {
-        const meal = log.meals.find((entry) => entry.slot === slot);
+        const items = log.meals.find((entry) => entry.slot === slot)?.items ?? [];
+        const mealCalories = items.reduce((sum, item) => sum + item.calories, 0);
         return (
-          <View key={slot} style={[styles.mealCard, { backgroundColor: colors.card }]}>
-            <View style={styles.mealHeaderRow}>
+          <View key={slot} style={[styles.card, { backgroundColor: colors.card }]}>
+            <View style={styles.rowBetween}>
               <View>
-                <Text style={[styles.mealTitle, { color: colors.text }]}>{MEAL_LABELS[slot]}</Text>
-                <Text style={[styles.mealSubtitle, { color: colors.subtleText }]}>
-                  {meal?.items.length ?? 0} aliment(s)
-                </Text>
+                <Text style={[typography.headline, { color: colors.text }]}>{MEAL_LABELS[slot]}</Text>
+                {items.length > 0 ? (
+                  <Text style={[typography.caption, { color: colors.subtleText }]}>
+                    {formatInteger(mealCalories)} kcal
+                  </Text>
+                ) : null}
               </View>
-              <Pressable
-                style={[styles.mealAddButton, { backgroundColor: colors.primary }]}
+              <IconButton
+                icon="add"
+                label={`Ajouter un aliment au ${MEAL_LABELS[slot].toLowerCase()}`}
+                variant="tinted"
+                size={36}
                 onPress={() => onAddFood(slot)}
-              >
-                <Text style={styles.mealAddButtonText}>+</Text>
-              </Pressable>
+              />
             </View>
 
-            {(meal?.items ?? []).length === 0 ? (
-              <Text style={[styles.emptyMeal, { color: colors.subtleText }]}>Aucun aliment ajouté.</Text>
+            {items.length === 0 ? (
+              <Text style={[typography.caption, { color: colors.subtleText }]}>Rien pour l'instant.</Text>
             ) : (
-              (meal?.items ?? []).map((item) => (
-                <View key={item.id} style={[styles.foodRow, { borderBottomColor: colors.border }]}>
-                  <View style={styles.foodTextColumn}>
-                    <Text style={[styles.foodName, { color: colors.text }]}>
-                      {item.name} · {item.quantity} {item.unit}
+              items.map((item, index) => (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.foodRow,
+                    index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                  ]}
+                >
+                  <View style={styles.flex}>
+                    <Text style={[typography.bodyStrong, { color: colors.text }]} numberOfLines={1}>
+                      {item.name}
+                      <Text style={[typography.caption, { color: colors.subtleText }]}>
+                        {'  '}
+                        {formatWeight(item.quantity)} {item.unit}
+                      </Text>
                     </Text>
-                    <Text style={[styles.foodMeta, { color: colors.subtleText }]}>
-                      {item.calories} kcal · P {item.proteinG} g · G {item.carbsG} g · L {item.fatG} g
-                    </Text>
+                    <View style={styles.macroLine}>
+                      <Text style={[typography.captionStrong, { color: colors.text }]}>
+                        {formatInteger(item.calories)} kcal
+                      </Text>
+                      <MacroDot color={colors.protein} value={item.proteinG} label="P" />
+                      <MacroDot color={colors.carbs} value={item.carbsG} label="G" />
+                      <MacroDot color={colors.fat} value={item.fatG} label="L" />
+                    </View>
                   </View>
-                  <Pressable onPress={() => onRemoveFood(slot, item.id)} hitSlop={12}>
-                    <Text style={[styles.removeFoodText, { color: colors.danger }]}>Supprimer</Text>
-                  </Pressable>
+                  <IconButton
+                    icon="trash-outline"
+                    label={`Supprimer ${item.name}`}
+                    tone="danger"
+                    size={36}
+                    onPress={() => onRemoveFood(slot, item.id)}
+                  />
                 </View>
               ))
             )}
@@ -170,137 +177,56 @@ export default function NutritionDailyView({
   );
 }
 
-type MacroProps = {
-  label: string;
-  value: number;
-  target: number;
-  color: string;
-};
-
-function MacroTile({ label, value, target, color }: MacroProps) {
+function MacroDot({ color, value, label }: { color: string; value: number; label: string }) {
   const colors = useThemeColors();
   return (
-    <View style={[styles.macroCard, { borderColor: colors.border }]}>
-      <Text style={[styles.macroTitle, { color }]}>{label}</Text>
-      <Text style={[styles.macroValue, { color: colors.text }]}>
-        {value}
-        <Text style={[styles.macroUnit, { color: colors.subtleText }]}> g</Text>
+    <View style={styles.macroDotRow}>
+      <View style={[styles.dot, { backgroundColor: color }]} />
+      <Text style={[typography.caption, styles.tabular, { color: colors.subtleText }]}>
+        {label} {formatWeight(Math.round(value))} g
       </Text>
-      <Text style={[styles.macroTarget, { color: colors.subtleText }]}>/ {target} g</Text>
+    </View>
+  );
+}
+
+function MacroTile({ label, value, target, color }: { label: string; value: number; target: number; color: string }) {
+  const colors = useThemeColors();
+  return (
+    <View style={[styles.macroTile, { backgroundColor: colors.card }]}>
+      <Text style={[typography.captionStrong, { color: colors.subtleText }]}>{label}</Text>
+      <Text style={[typography.number, { color: colors.text }]}>
+        {Math.round(value)}
+        <Text style={[typography.caption, { color: colors.subtleText }]}> / {Math.round(target)} g</Text>
+      </Text>
+      <ProgressBar progress={value / Math.max(1, target)} color={color} height={6} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  dateHeaderRow: {
+  container: { gap: spacing.md },
+  flex: { flex: 1 },
+  capitalize: { textTransform: 'capitalize' },
+  tabular: { fontVariant: ['tabular-nums'] },
+  dateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  dateCenter: { flex: 1, alignItems: 'center', gap: 2 },
+  card: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  inlineIcon: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  macrosRow: { flexDirection: 'row', gap: spacing.sm },
+  macroTile: { flex: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs + 2 },
+  waterButtons: { flexDirection: 'row', gap: spacing.sm },
+  waterButton: {
+    flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  dateNavButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.xs,
+    minHeight: 40,
+    borderRadius: radius.pill,
   },
-  dateNavText: { fontSize: 24, fontWeight: '700' },
-  dateCenter: { alignItems: 'center', flex: 1 },
-  dateLabel: { fontSize: 18, fontWeight: '700', textAlign: 'center' },
-  dateSubtitle: { fontSize: 12, marginTop: 2, textTransform: 'capitalize' },
-  quickActionsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  todayButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  todayButtonText: { fontSize: 13, fontWeight: '600' },
-  remainingCard: {
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  remainingLabel: { fontSize: 13, fontWeight: '600' },
-  remainingValue: { fontSize: 18, fontWeight: '700' },
-  macrosGrid: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  macroCard: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  macroTitle: { fontSize: 13, fontWeight: '700', marginBottom: 4 },
-  macroValue: { fontSize: 18, fontWeight: '700' },
-  macroUnit: { fontSize: 12, fontWeight: '400' },
-  macroTarget: { fontSize: 11, marginTop: 2 },
-  waterCard: {
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  waterHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  waterTitle: { fontSize: 15, fontWeight: '700' },
-  waterValue: { fontSize: 14, fontWeight: '700' },
-  waterBarTrack: {
-    height: 10,
-    borderRadius: 5,
-    overflow: 'hidden',
-  },
-  waterBarFill: { height: '100%', borderRadius: 5, backgroundColor: '#5AC8FA' },
-  waterQuickAddRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  waterQuickAddButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  waterQuickAddText: { fontSize: 13, fontWeight: '700' },
-  mealCard: {
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-  },
-  mealHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  mealTitle: { fontSize: 16, fontWeight: '700' },
-  mealSubtitle: { fontSize: 12, marginTop: 2 },
-  mealAddButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mealAddButtonText: { color: '#fff', fontSize: 22, fontWeight: '700', includeFontPadding: false },
-  emptyMeal: { fontSize: 13 },
-  foodRow: {
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  foodTextColumn: { flex: 1 },
-  foodName: { fontSize: 14, fontWeight: '600' },
-  foodMeta: { fontSize: 12, marginTop: 2 },
-  removeFoodText: { fontSize: 13, fontWeight: '700' },
+  foodRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingTop: spacing.sm },
+  macroLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: 2, flexWrap: 'wrap' },
+  macroDotRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  dot: { width: 6, height: 6, borderRadius: 3 },
 });

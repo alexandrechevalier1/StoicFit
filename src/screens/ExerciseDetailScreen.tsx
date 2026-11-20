@@ -1,21 +1,10 @@
 import { useMemo, useState } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  Pressable,
-  TextInput,
-  Image,
-  Alert,
-  Modal,
-  ScrollView,
-  Platform,
-  KeyboardAvoidingView,
-} from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { StyleSheet, Text, View, Pressable, TextInput, Alert, ScrollView } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
 import { useThemeColors } from '../theme/useThemeColors';
+import { radius, SCREEN_PADDING, spacing, typography } from '../theme/tokens';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 import type { SetLog as ExerciseSet } from '../models';
 import NumericKeypad from '../components/NumericKeypad';
@@ -23,7 +12,10 @@ import DatePicker from '../components/DatePicker';
 import RestTimerButton from '../components/RestTimerButton';
 import IntensityIndicator from '../components/IntensityIndicator';
 import { appendKeypadInput, parseDecimal, toDecimalInput } from '../utils/number';
-import { confirmDestructive } from '../utils/confirm';
+import { confirmDestructive, pluralize } from '../utils/confirm';
+import { formatInteger, formatRelativeDay, formatWeight } from '../utils/format';
+import { pickSquareImage } from '../utils/pickImage';
+import { Button, EmptyState, IconButton, ScreenHeader, Sheet, Thumbnail } from '../components/ui';
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'ExerciseDetail'>;
 
@@ -43,6 +35,23 @@ const parseReps = (value: string) => {
 const parseWeight = (value: string) => {
   const parsed = parseDecimal(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
+
+/** Charge lisible : « 100 kg », « PDC », « PDC + 10 kg ». */
+const formatLoad = (weightKg: number, bodyweight?: boolean) => {
+  if (bodyweight) return weightKg > 0 ? `PDC + ${formatWeight(weightKg)} kg` : 'PDC';
+  return `${formatWeight(weightKg)} kg`;
+};
+
+/** Même chose pendant la saisie au pavé (la valeur est encore une chaîne, ex. « 22, »). */
+const formatLoadInput = (value: string, bodyweight: boolean) => {
+  if (bodyweight) return value ? `PDC + ${value} kg` : 'PDC';
+  return `${value || '0'} kg`;
+};
+
+const dateKeyToIso = (dateKey: string) => {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day, 12).toISOString();
 };
 
 export default function ExerciseDetailScreen({ route, navigation }: Props) {
@@ -106,36 +115,32 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
   const [selectedNoteDateKey, setSelectedNoteDateKey] = useState<string | null>(null);
   const [noteValue, setNoteValue] = useState('');
 
-  const formatSetWeight = (setItem: ExerciseSet) => {
-    if (setItem.bodyweight) {
-      return setItem.weightKg > 0 ? `pdc+${toDecimalInput(setItem.weightKg)}` : 'pdc';
-    }
-    return setItem.weightKg.toFixed(2).replace('.', ',');
-  };
-
   const handlePickImage = async () => {
-    if (!isEditing) return;
-
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permission requise',
-        "L'accès à la galerie photo est nécessaire pour choisir une image."
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets.length > 0) {
-      updateExercise(programId, seanceId, exerciseId, { imageUri: result.assets[0].uri });
-    }
+    const uri = await pickSquareImage();
+    if (uri) updateExercise(programId, seanceId, exerciseId, { imageUri: uri });
   };
+
+  const openAddSetModal = () => {
+    if (lastSet) {
+      setRepsValue(String(lastSet.reps));
+      setWeightValue(toDecimalInput(lastSet.weightKg));
+      setWeightBodyweight(lastSet.bodyweight ?? false);
+    }
+    setIsAddSetModalVisible(true);
+  };
+
+  // Meilleure série : charge la plus lourde, puis le plus de reps à charge égale.
+  const bestSet = useMemo(
+    () =>
+      exerciseSets.reduce<ExerciseSet | undefined>(
+        (best, log) =>
+          !best || log.weightKg > best.weightKg || (log.weightKg === best.weightKg && log.reps > best.reps)
+            ? log
+            : best,
+        undefined
+      ),
+    [exerciseSets]
+  );
 
   const closeAddSetModal = () => {
     setIsAddSetModalVisible(false);
@@ -384,587 +389,309 @@ export default function ExerciseDetailScreen({ route, navigation }: Props) {
   const setsByDate = [...groupedSetsMap.values()]
     .map((group) => ({
       ...group,
-      sets: [...group.sets].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+      // Ordre chronologique : la série 1 est la première faite dans la journée.
+      sets: [...group.sets].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
     }))
     .sort((a, b) => (a.dateKey < b.dateKey ? 1 : a.dateKey > b.dateKey ? -1 : 0));
 
+  const inputStyle = [styles.input, { backgroundColor: colors.cardMuted, color: colors.text }];
+
+  const renderLoadEditor = (
+    reps: string,
+    setReps: (updater: (v: string) => string) => void,
+    weight: string,
+    setWeight: (updater: (v: string) => string) => void,
+    bodyweight: boolean,
+    setBodyweight: (updater: (v: boolean) => boolean) => void
+  ) => (
+    <>
+      <View style={styles.counterRow}>
+        <Text style={[typography.captionStrong, styles.overline, { color: colors.subtleText }]}>Répétitions</Text>
+        <Text style={[typography.numberLarge, { color: colors.text }]}>{reps || '0'}</Text>
+      </View>
+      <NumericKeypad
+        value={reps}
+        onDigitPress={(digit) => setReps((v) => appendReps(v, digit))}
+        onDeletePress={() => setReps((v) => v.slice(0, -1))}
+      />
+
+      <View style={styles.counterRow}>
+        <Text style={[typography.captionStrong, styles.overline, { color: colors.subtleText }]}>Charge</Text>
+        <Text style={[typography.numberLarge, { color: colors.text }]}>{formatLoadInput(weight, bodyweight)}</Text>
+      </View>
+      <NumericKeypad
+        value={weight}
+        allowDecimal
+        onDigitPress={(digit) => setWeight((v) => appendWeight(v, digit))}
+        onDeletePress={() => {
+          if (weight) {
+            setWeight((v) => v.slice(0, -1));
+          } else {
+            setBodyweight(() => false);
+          }
+        }}
+        extraKey={{ label: 'Poids du corps', active: bodyweight, onPress: () => setBodyweight((v) => !v) }}
+      />
+    </>
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.headerRow}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Text style={[styles.backButton, { color: colors.primary }]}>{'‹ Retour'}</Text>
-        </Pressable>
-        <View style={styles.headerActions}>
-          <RestTimerButton />
-          <Pressable onPress={() => setIsEditing((v) => !v)} hitSlop={12}>
-            <Text style={[styles.editButton, { color: colors.primary }]}>
-              {isEditing ? 'Terminé' : 'Modifier'}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
+      <ScreenHeader
+        title={exercise?.name || 'Exercice'}
+        subtitle={seance?.name}
+        onBack={() => navigation.goBack()}
+        actions={
+          <>
+            {!isEditing ? <RestTimerButton /> : null}
+            <Button
+              label={isEditing ? 'Terminé' : 'Modifier'}
+              variant={isEditing ? 'filled' : 'tinted'}
+              size="sm"
+              onPress={() => setIsEditing((v) => !v)}
+            />
+          </>
+        }
+      />
 
       <ScrollView
-        style={styles.contentScroll}
-        contentContainerStyle={styles.contentScrollContent}
+        style={styles.flex}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.titleRow}>
-          <Pressable
-            onPress={handlePickImage}
-            disabled={!isEditing}
-            style={[styles.thumbnail, { backgroundColor: colors.card }]}
-          >
-            {exercise?.imageUri ? (
-              <Image source={{ uri: exercise.imageUri }} style={styles.thumbnailImage} />
-            ) : (
-              <Text style={styles.thumbnailPlaceholder}>📷</Text>
-            )}
-          </Pressable>
-
-          <View style={styles.itemTextContainer}>
-            {isEditing ? (
+        {isEditing ? (
+          <View style={[styles.card, styles.editCard, { backgroundColor: colors.card }]}>
+            <Thumbnail
+              imageUri={exercise?.imageUri}
+              fallbackIcon="fitness-outline"
+              size={64}
+              editable
+              onPress={handlePickImage}
+            />
+            <View style={styles.editFields}>
               <TextInput
-                style={[styles.title, styles.itemTextInput, { color: colors.text, borderBottomColor: colors.border }]}
+                style={[typography.bodyStrong, inputStyle]}
                 value={exercise?.name}
-                onChangeText={(text) =>
-                  updateExercise(programId, seanceId, exerciseId, { name: text })
-                }
+                onChangeText={(text) => updateExercise(programId, seanceId, exerciseId, { name: text })}
                 placeholder="Nom de l'exercice"
                 placeholderTextColor={colors.subtleText}
               />
-            ) : (
-              <Text style={[styles.title, { color: colors.text }]}>{exercise?.name}</Text>
-            )}
-          </View>
-
-          <Pressable
-            onPress={() => {
-              if (lastSet) {
-                setRepsValue(String(lastSet.reps));
-                setWeightValue(toDecimalInput(lastSet.weightKg));
-                setWeightBodyweight(lastSet.bodyweight ?? false);
-              }
-              setIsAddSetModalVisible(true);
-            }}
-            style={[styles.addButton, { backgroundColor: colors.primary }]}
-            hitSlop={12}
-          >
-            <Text style={styles.addButtonText}>+</Text>
-          </Pressable>
-        </View>
-
-        {isEditing ? (
-          <TextInput
-            style={[styles.subtitle, styles.itemTextInput, { color: colors.subtleText, borderBottomColor: colors.border }]}
-            value={exercise?.subtitle}
-            onChangeText={(text) =>
-              updateExercise(programId, seanceId, exerciseId, { subtitle: text })
-            }
-            placeholder="Sous-titre (ex: 4 séries)"
-            placeholderTextColor={colors.subtleText}
-          />
-        ) : (
-          exercise?.subtitle ? <Text style={[styles.subtitle, { color: colors.subtleText }]}>{exercise.subtitle}</Text> : null
-        )}
-
-        {setsByDate.map((group) => (
-          <View key={group.dateKey} style={styles.dateGroupContainer}>
-            <Pressable
-              onPress={() => openNoteModal(group.dateKey)}
-              accessibilityRole="button"
-              accessibilityLabel={`Notes de la séance du ${formatDateKey(group.dateKey)}`}
-              style={({ pressed }) => [
-                styles.recapBanner,
-                { backgroundColor: colors.primary },
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Text style={styles.recapDate}>{formatDateKey(group.dateKey)}</Text>
-              <View style={styles.recapTotalsContainer}>
-                <Text style={styles.recapText}>
-                  total {group.totalReps} reps {group.totalVolume} Kg
-                </Text>
-              </View>
-              {seance?.notesByDate?.[group.dateKey] ? (
-                <Text style={styles.recapNoteIcon}>📝</Text>
-              ) : null}
-              {isEditing ? <Text style={styles.recapEditHint}>modifier</Text> : null}
-            </Pressable>
-
-            <View style={styles.setsList}>
-              {group.sets.map((item, index) => (
-                <Pressable
-                  key={item.id}
-                  disabled={!isEditing}
-                  onPress={() => openEditSetModal(item)}
-                  style={({ pressed }) => [
-                    styles.setRow,
-                    isEditing && styles.editableSetRow,
-                    isEditing && pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <Text style={[styles.setLine, { color: colors.text, flex: 1 }]}>
-                    {`Série ${String(index + 1).padStart(2, ' ')}   ${String(item.reps).padStart(
-                      3,
-                      ' '
-                    )} X ${formatSetWeight(item).padStart(5, ' ')} Kg`}
-                  </Text>
-                  <IntensityIndicator
-                    value={item.intensity}
-                    onChange={(intensity) =>
-                      updateSet(item.id, { intensity })
-                    }
-                  />
-                  {isEditing ? (
-                    <Text style={[styles.editSetHintText, { color: colors.primary }]}>modifier</Text>
-                  ) : null}
-                </Pressable>
-              ))}
+              <TextInput
+                style={[typography.caption, inputStyle]}
+                value={exercise?.subtitle}
+                onChangeText={(text) => updateExercise(programId, seanceId, exerciseId, { subtitle: text })}
+                placeholder="Note (ex : prise serrée)"
+                placeholderTextColor={colors.subtleText}
+              />
             </View>
           </View>
-        ))}
+        ) : exerciseSets.length > 0 ? (
+          <View style={[styles.card, styles.summaryCard, { backgroundColor: colors.card }]}>
+            <Thumbnail imageUri={exercise?.imageUri} fallbackIcon="fitness-outline" size={56} />
+            <View style={styles.summaryMetrics}>
+              <View style={styles.summaryMetric}>
+                <Text style={[typography.caption, { color: colors.subtleText }]}>Record</Text>
+                <Text style={[typography.number, { color: colors.text }]} numberOfLines={1}>
+                  {bestSet ? `${bestSet.reps} × ${formatLoad(bestSet.weightKg, bestSet.bodyweight)}` : '—'}
+                </Text>
+              </View>
+              <View style={styles.summaryMetric}>
+                <Text style={[typography.caption, { color: colors.subtleText }]}>Séances</Text>
+                <Text style={[typography.number, { color: colors.text }]}>{setsByDate.length}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {exercise?.subtitle && !isEditing ? (
+          <Text style={[typography.caption, { color: colors.subtleText }]}>{exercise.subtitle}</Text>
+        ) : null}
+
+        {setsByDate.length === 0 ? (
+          <EmptyState
+            icon="barbell-outline"
+            title="Aucune série"
+            message="Ajoutez votre première série : les reps et la charge seront pré-remplies la fois suivante."
+          />
+        ) : null}
+
+        {setsByDate.map((group) => {
+          const note = seance?.notesByDate?.[group.dateKey];
+          const dayLabel = formatRelativeDay(dateKeyToIso(group.dateKey));
+          return (
+            <View key={group.dateKey} style={[styles.card, { backgroundColor: colors.card }]}>
+              <Pressable
+                onPress={() => openNoteModal(group.dateKey)}
+                accessibilityRole="button"
+                accessibilityLabel={`${dayLabel}, ${note ? 'voir la note' : 'ajouter une note'}`}
+                style={({ pressed }) => [styles.groupHeader, pressed && { opacity: 0.7 }]}
+              >
+                <View style={styles.flex}>
+                  <Text style={[typography.headline, styles.capitalize, { color: colors.text }]}>{dayLabel}</Text>
+                  <Text style={[typography.caption, { color: colors.subtleText }]}>
+                    {[
+                      pluralize(group.sets.length, 'série'),
+                      pluralize(group.totalReps, 'rep'),
+                      group.totalVolume > 0 ? `${formatInteger(group.totalVolume)} kg` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                </View>
+                {isEditing ? (
+                  <IconButton
+                    icon="calendar-outline"
+                    label="Déplacer à une autre date"
+                    variant="tinted"
+                    size={36}
+                    onPress={() => openGroupDateModal(group.dateKey)}
+                  />
+                ) : null}
+                <Ionicons
+                  name={note ? 'document-text' : 'document-text-outline'}
+                  size={20}
+                  color={note ? colors.primary : colors.subtleText}
+                />
+              </Pressable>
+
+              {note ? (
+                <Text
+                  style={[typography.caption, styles.notePreview, { color: colors.text, backgroundColor: colors.cardMuted }]}
+                  numberOfLines={2}
+                >
+                  {note}
+                </Text>
+              ) : null}
+
+              <View>
+                {group.sets.map((item, index) => (
+                  <Pressable
+                    key={item.id}
+                    disabled={!isEditing}
+                    onPress={() => openEditSetModal(item)}
+                    accessibilityLabel={isEditing ? `Modifier la série ${index + 1}` : undefined}
+                    style={({ pressed }) => [
+                      styles.setRow,
+                      index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                      isEditing && pressed && { opacity: 0.6 },
+                    ]}
+                  >
+                    <View style={[styles.setIndex, { backgroundColor: colors.cardMuted }]}>
+                      <Text style={[typography.captionStrong, { color: colors.subtleText }]}>{index + 1}</Text>
+                    </View>
+                    <Text style={[typography.number, styles.flex, { color: colors.text }]}>
+                      {item.reps}
+                      <Text style={{ color: colors.subtleText }}> × </Text>
+                      {formatLoad(item.weightKg, item.bodyweight)}
+                    </Text>
+                    <IntensityIndicator value={item.intensity} onChange={(intensity) => updateSet(item.id, { intensity })} />
+                    {isEditing ? <Ionicons name="create-outline" size={18} color={colors.primary} /> : null}
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          );
+        })}
       </ScrollView>
 
-      <Modal
-        visible={isEditSetModalVisible}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={closeEditSetModal}
-      >
-        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={closeEditSetModal}>
-          <Pressable style={[styles.modalSheet, { backgroundColor: colors.background }]} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeaderRow}>
-              <Pressable onPress={closeEditSetModal} hitSlop={12}>
-                <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
-              </Pressable>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Modifier le log</Text>
-              <View style={styles.modalHeaderSpacer} />
-            </View>
+      {!isEditing ? (
+        <View style={[styles.footer, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
+          <Button label="Ajouter une série" icon="add" onPress={openAddSetModal} />
+        </View>
+      ) : null}
 
-            <ScrollView contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
-              <View style={styles.editFieldGroup}>
-                <Text style={[styles.editFieldLabel, { color: colors.subtleText }]}>Date</Text>
-                <DatePicker value={editDateValue} onChange={setEditDateValue} />
-              </View>
+      <Sheet visible={isAddSetModalVisible} onClose={closeAddSetModal} title="Nouvelle série" size="large">
+        {renderLoadEditor(repsValue, setRepsValue, weightValue, setWeightValue, weightBodyweight, setWeightBodyweight)}
+        <Button label="Valider la série" icon="checkmark" onPress={handleValidateSet} />
+      </Sheet>
 
-              <View style={styles.modalCounterRow}>
-                <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Nombre de reps</Text>
-                <Text style={[styles.modalCounterValue, { color: colors.text }]}>{editRepsValue || '0'}</Text>
-              </View>
-              <NumericKeypad
-                value={editRepsValue}
-                onDigitPress={(digit) => setEditRepsValue((v) => appendReps(v, digit))}
-                onDeletePress={() => setEditRepsValue((v) => v.slice(0, -1))}
-              />
+      <Sheet visible={isEditSetModalVisible} onClose={closeEditSetModal} title="Modifier la série" size="large">
+        <View style={styles.fieldGroup}>
+          <Text style={[typography.captionStrong, styles.overline, { color: colors.subtleText }]}>Date</Text>
+          <DatePicker value={editDateValue} onChange={setEditDateValue} />
+        </View>
+        {renderLoadEditor(
+          editRepsValue,
+          setEditRepsValue,
+          editWeightValue,
+          setEditWeightValue,
+          editWeightBodyweight,
+          setEditWeightBodyweight
+        )}
+        <Button label="Enregistrer" icon="checkmark" onPress={handleSaveSetEdition} />
+        <Button label="Supprimer la série" icon="trash-outline" variant="plain" tone="danger" onPress={handleDeleteSet} />
+      </Sheet>
 
-              <View style={styles.modalCounterRow}>
-                <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Charge</Text>
-                <Text style={[styles.modalCounterValue, { color: colors.text }]}>
-                  {editWeightBodyweight
-                    ? editWeightValue
-                      ? `pdc+${editWeightValue}`
-                      : 'pdc'
-                    : `${editWeightValue || '0'} kg`}
-                </Text>
-              </View>
-              <NumericKeypad
-                value={editWeightValue}
-                allowDecimal
-                onDigitPress={(digit) => setEditWeightValue((v) => appendWeight(v, digit))}
-                onDeletePress={() => {
-                  if (editWeightValue) {
-                    setEditWeightValue((v) => v.slice(0, -1));
-                  } else {
-                    setEditWeightBodyweight(false);
-                  }
-                }}
-                extraKey={{
-                  label: 'PDC',
-                  active: editWeightBodyweight,
-                  onPress: () => setEditWeightBodyweight((v) => !v),
-                }}
-              />
+      <Sheet visible={isGroupDateModalVisible} onClose={closeGroupDateModal} title="Déplacer la séance">
+        <View style={styles.fieldGroup}>
+          <Text style={[typography.captionStrong, styles.overline, { color: colors.subtleText }]}>Nouvelle date</Text>
+          <DatePicker value={groupDateValue} onChange={setGroupDateValue} />
+        </View>
+        <Text style={[typography.caption, { color: colors.subtleText }]}>
+          Toutes les séries de ce jour seront déplacées vers cette date.
+        </Text>
+        <Button label="Déplacer la séance" icon="calendar-outline" onPress={handleSaveGroupDate} />
+      </Sheet>
 
-              <Pressable
-                style={[styles.modalValidateButton, { backgroundColor: colors.primary }]}
-                onPress={handleSaveSetEdition}
-              >
-                <Text style={styles.modalValidateButtonText}>Enregistrer les modifications</Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.modalDeleteButton, { borderColor: colors.danger }]}
-                onPress={handleDeleteSet}
-              >
-                <Text style={[styles.modalDeleteButtonText, { color: colors.danger }]}>Supprimer la serie</Text>
-              </Pressable>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={isAddSetModalVisible}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={closeAddSetModal}
-      >
-        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={closeAddSetModal}>
-          <Pressable style={[styles.modalSheet, { backgroundColor: colors.background }]} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeaderRow}>
-              <Pressable onPress={closeAddSetModal} hitSlop={12}>
-                <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
-              </Pressable>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Séries</Text>
-              <View style={styles.modalHeaderSpacer} />
-            </View>
-
-            <ScrollView
-              contentContainerStyle={styles.modalScrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.modalCounterRow}>
-                <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Nombre de reps</Text>
-                <Text style={[styles.modalCounterValue, { color: colors.text }]}>{repsValue || '0'}</Text>
-              </View>
-              <NumericKeypad
-                value={repsValue}
-                onDigitPress={(digit) => setRepsValue((v) => appendReps(v, digit))}
-                onDeletePress={() => setRepsValue((v) => v.slice(0, -1))}
-              />
-
-              <View style={styles.modalCounterRow}>
-                <Text style={[styles.modalSectionLabel, { color: colors.subtleText }]}>Charge</Text>
-                <Text style={[styles.modalCounterValue, { color: colors.text }]}>
-                  {weightBodyweight
-                    ? weightValue
-                      ? `pdc+${weightValue}`
-                      : 'pdc'
-                    : `${weightValue || '0'} kg`}
-                </Text>
-              </View>
-              <NumericKeypad
-                value={weightValue}
-                allowDecimal
-                onDigitPress={(digit) => setWeightValue((v) => appendWeight(v, digit))}
-                onDeletePress={() => {
-                  if (weightValue) {
-                    setWeightValue((v) => v.slice(0, -1));
-                  } else {
-                    setWeightBodyweight(false);
-                  }
-                }}
-                extraKey={{
-                  label: 'PDC',
-                  active: weightBodyweight,
-                  onPress: () => setWeightBodyweight((v) => !v),
-                }}
-              />
-
-              <Pressable style={[styles.modalValidateButton, { backgroundColor: colors.primary }]} onPress={handleValidateSet}>
-                <Text style={styles.modalValidateButtonText}>Valider la série</Text>
-              </Pressable>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={isGroupDateModalVisible}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={closeGroupDateModal}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalKeyboardRoot}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={closeGroupDateModal}>
-            <Pressable
-              style={[
-                styles.modalSheet,
-                styles.modalSheetCompact,
-                { backgroundColor: colors.background, maxHeight: '90%' },
-              ]}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={styles.modalHeaderRow}>
-                <Pressable onPress={closeGroupDateModal} hitSlop={12}>
-                  <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
-                </Pressable>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Déplacer la séance</Text>
-                <View style={styles.modalHeaderSpacer} />
-              </View>
-
-              <ScrollView
-                contentContainerStyle={styles.modalScrollContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                <View style={styles.editFieldGroup}>
-                  <Text style={[styles.editFieldLabel, { color: colors.subtleText }]}>Nouvelle date</Text>
-                  <DatePicker value={groupDateValue} onChange={setGroupDateValue} />
-                </View>
-
-                <Text style={[styles.groupDateHint, { color: colors.subtleText }]}>
-                  Toutes les séries de ce bandeau seront déplacées vers cette date.
-                </Text>
-
-                <Pressable
-                  style={[styles.modalValidateButton, { backgroundColor: colors.primary }]}
-                  onPress={handleSaveGroupDate}
-                >
-                  <Text style={styles.modalValidateButtonText}>Déplacer la séance</Text>
-                </Pressable>
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal
+      <Sheet
         visible={isNoteModalVisible}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={closeNoteModal}
+        onClose={closeNoteModal}
+        title={selectedNoteDateKey ? `Note · ${formatRelativeDay(dateKeyToIso(selectedNoteDateKey))}` : 'Note'}
       >
-        <KeyboardAvoidingView
-          style={styles.modalKeyboardRoot}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <Pressable
-            style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}
-            onPress={closeNoteModal}
-          >
-            <Pressable
-              style={[
-                styles.modalSheet,
-                styles.modalSheetCompact,
-                { backgroundColor: colors.background, maxHeight: '90%' },
-              ]}
-              onPress={(e) => e.stopPropagation()}
-            >
-              <View style={styles.modalHeaderRow}>
-                <Pressable onPress={closeNoteModal} hitSlop={12}>
-                  <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
-                </Pressable>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>
-                  Notes du {selectedNoteDateKey ? formatDateKey(selectedNoteDateKey) : ''}
-                </Text>
-                <View style={styles.modalHeaderSpacer} />
-              </View>
-
-              <ScrollView
-                contentContainerStyle={styles.modalScrollContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                <TextInput
-                  style={[
-                    styles.noteInput,
-                    { color: colors.text, borderColor: colors.border, backgroundColor: colors.card },
-                  ]}
-                  value={noteValue}
-                  onChangeText={(text) => setNoteValue(text.slice(0, NOTE_MAX_LENGTH))}
-                  placeholder="Notes sur cette séance..."
-                  placeholderTextColor={colors.subtleText}
-                  multiline
-                  maxLength={NOTE_MAX_LENGTH}
-                  textAlignVertical="top"
-                />
-                <Text style={[styles.noteCounter, { color: colors.subtleText }]}>
-                  {noteValue.length}/{NOTE_MAX_LENGTH}
-                </Text>
-
-                <Pressable
-                  style={[styles.modalValidateButton, { backgroundColor: colors.primary }]}
-                  onPress={handleSaveNote}
-                >
-                  <Text style={styles.modalValidateButtonText}>Enregistrer la note</Text>
-                </Pressable>
-
-                {isEditing && selectedNoteDateKey && (
-                  <Pressable
-                    style={[styles.modalSecondaryButton, { borderColor: colors.border }]}
-                    onPress={openDateModalFromNote}
-                  >
-                    <Text style={[styles.modalSecondaryButtonText, { color: colors.primary }]}>
-                      Déplacer la séance...
-                    </Text>
-                  </Pressable>
-                )}
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        </KeyboardAvoidingView>
-      </Modal>
+        <TextInput
+          style={[typography.body, styles.noteInput, { color: colors.text, backgroundColor: colors.cardMuted }]}
+          value={noteValue}
+          onChangeText={(text) => setNoteValue(text.slice(0, NOTE_MAX_LENGTH))}
+          placeholder="Sensations, réglages de la machine, douleurs…"
+          placeholderTextColor={colors.subtleText}
+          multiline
+          maxLength={NOTE_MAX_LENGTH}
+          textAlignVertical="top"
+        />
+        <Text style={[typography.caption, styles.noteCounter, { color: colors.subtleText }]}>
+          {noteValue.length}/{NOTE_MAX_LENGTH}
+        </Text>
+        <Button label="Enregistrer la note" onPress={handleSaveNote} />
+        {isEditing && selectedNoteDateKey ? (
+          <Button label="Déplacer la séance…" icon="calendar-outline" variant="tinted" onPress={openDateModalFromNote} />
+        ) : null}
+      </Sheet>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 60 },
-  contentScroll: { flex: 1 },
-  contentScrollContent: { paddingBottom: 32 },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+  container: { flex: 1 },
+  flex: { flex: 1 },
+  scrollContent: { paddingHorizontal: SCREEN_PADDING, paddingBottom: spacing.xl, gap: spacing.md },
+  card: { borderRadius: radius.lg, padding: spacing.lg },
+  editCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  editFields: { flex: 1, gap: spacing.sm },
+  input: { borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs + 2 },
+  summaryCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  summaryMetrics: { flex: 1, flexDirection: 'row', gap: spacing.lg },
+  summaryMetric: { gap: 2, flexShrink: 1 },
+  capitalize: { textTransform: 'capitalize' },
+  groupHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  notePreview: {
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+    fontStyle: 'italic',
   },
-  backButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  editButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
+  setRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm + 2 },
+  setIndex: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  footer: {
+    paddingHorizontal: SCREEN_PADDING,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  thumbnail: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: '#F2F2F7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  thumbnailImage: { width: '100%', height: '100%' },
-  thumbnailPlaceholder: { fontSize: 20 },
-  itemTextContainer: { flex: 1 },
-  title: { fontSize: 24, fontWeight: 'bold' },
-  subtitle: { fontSize: 14, color: '#888' },
-  setRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
-  editSetHintText: { fontSize: 12, fontWeight: '700' },
-  editableSetRow: {
-    borderRadius: 8,
-  },
-  recapBanner: {
-    backgroundColor: '#007AFF',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginTop: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  recapDate: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  recapEditHint: { fontSize: 12, fontWeight: '700', color: '#fff' },
-  recapNoteIcon: { fontSize: 14, marginLeft: 8 },
-  recapTotalsContainer: { flex: 1, alignItems: 'center' },
-  recapText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  dateGroupContainer: { marginBottom: 14 },
-  setsList: { marginTop: 12 },
-  setLine: {
-    fontSize: 15,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    fontFamily: Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' }),
-  },
-  itemTextInput: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#C7C7CC',
-    paddingVertical: 2,
-  },
-  addButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonText: {
-    fontSize: 22,
-    color: '#fff',
-    fontWeight: '600',
-    includeFontPadding: false,
-    textAlignVertical: 'center',
-  },
-  modalKeyboardRoot: { flex: 1 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    height: '75%',
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-  modalSheetCompact: { height: 'auto', paddingBottom: 24 },
-  modalHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  modalCloseButton: { fontSize: 20, color: '#000', fontWeight: '600' },
-  modalTitle: { fontSize: 18, fontWeight: 'bold' },
-  modalHeaderSpacer: { width: 20 },
-  modalScrollContent: { paddingBottom: 24 },
-  editFieldGroup: { marginTop: 4, marginBottom: 10 },
-  groupDateHint: { fontSize: 13, lineHeight: 18 },
-  editFieldLabel: { fontSize: 13, marginBottom: 6 },
-  noteInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    minHeight: 120,
-    marginBottom: 4,
-  },
-  noteCounter: { fontSize: 12, textAlign: 'right' },
-  modalCounterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  modalSectionLabel: { fontSize: 14, color: '#888' },
-  modalCounterValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  modalValidateButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  modalValidateButtonText: { fontSize: 16, color: '#fff', fontWeight: '600' },
-  modalDeleteButton: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  modalDeleteButtonText: { fontSize: 15, fontWeight: '700' },
-  modalSecondaryButton: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  modalSecondaryButtonText: { fontSize: 15, fontWeight: '700' },
+  overline: { textTransform: 'uppercase', letterSpacing: 0.6 },
+  counterRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs },
+  fieldGroup: { gap: spacing.sm },
+  noteInput: { borderRadius: radius.md, padding: spacing.md, minHeight: 120 },
+  noteCounter: { textAlign: 'right', marginTop: -spacing.sm },
 });

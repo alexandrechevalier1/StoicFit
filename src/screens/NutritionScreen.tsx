@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { MealSlot } from '../models';
 import { useNutritionStorage } from '../hooks/useNutritionStorage';
 import ProfileOnboardingSheet from '../components/ProfileOnboardingSheet';
@@ -7,6 +7,8 @@ import NutritionDailyView from '../components/NutritionDailyView';
 import NutritionWeeklySummary from '../components/NutritionWeeklySummary';
 import { useProfileStore } from '../store/profileStore';
 import { useThemeColors } from '../theme/useThemeColors';
+import { radius, SCREEN_PADDING, spacing, typography } from '../theme/tokens';
+import { Button, ScreenHeader, Sheet } from '../components/ui';
 import { calculateNutritionTargets } from '../utils/nutritionCalculator';
 import { addDaysToDateKey, getLocalDateKey } from '../utils/nutritionDate';
 import { buildEmptyLog, DEFAULT_NUTRITION_GOALS } from '../utils/nutritionSummary';
@@ -183,30 +185,43 @@ export default function NutritionScreen() {
     });
   };
 
-  return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.contentContainer}>
-      <View style={styles.titleRow}>
-        <Text style={[styles.title, { color: colors.text }]}>Nutrition</Text>
-        <Pressable onPress={handleResetDay} hitSlop={12}>
-          <Text style={[styles.resetText, { color: colors.danger }]}>Réinitialiser le jour</Text>
-        </Pressable>
-      </View>
+  const hasEntries =
+    selectedLog.waterMl > 0 || selectedLog.meals.some((meal) => meal.items.length > 0);
 
-      <NutritionDailyView
-        dateKey={selectedDateKey}
-        log={selectedLog}
-        goals={goals}
-        totals={totals}
-        onPreviousDay={() => navigateDay(-1)}
-        onNextDay={() => navigateDay(1)}
-        onToday={() => setSelectedDateKey(getLocalDateKey())}
-        onAddFood={openAddFood}
-        onRemoveFood={handleRemoveFood}
-        onOpenGoals={openGoalsModal}
-        onAddWater={handleAddWater}
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScreenHeader
+        title="Nutrition"
+        actions={<Button label="Objectifs" icon="flag-outline" variant="tinted" size="sm" onPress={openGoalsModal} />}
       />
 
-      <NutritionWeeklySummary summary={weeklySummary} />
+      <ScrollView contentContainerStyle={styles.contentContainer} keyboardShouldPersistTaps="handled">
+        <NutritionDailyView
+          dateKey={selectedDateKey}
+          log={selectedLog}
+          goals={goals}
+          totals={totals}
+          onPreviousDay={() => navigateDay(-1)}
+          onNextDay={() => navigateDay(1)}
+          onToday={() => setSelectedDateKey(getLocalDateKey())}
+          onAddFood={openAddFood}
+          onRemoveFood={handleRemoveFood}
+          onAddWater={handleAddWater}
+        />
+
+        <NutritionWeeklySummary summary={weeklySummary} />
+
+        {hasEntries ? (
+          <Button
+            label="Effacer cette journée"
+            icon="refresh-outline"
+            variant="plain"
+            tone="danger"
+            size="sm"
+            onPress={handleResetDay}
+          />
+        ) : null}
+      </ScrollView>
 
       <ProfileOnboardingSheet
         visible={isOnboardingVisible}
@@ -220,123 +235,89 @@ export default function NutritionScreen() {
         }}
       />
 
-      <Modal
-        visible={foodModalVisible}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={closeFoodModal}
-      >
-        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={closeFoodModal}>
-          <Pressable style={[styles.modalSheet, { backgroundColor: colors.background }]} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeaderRow}>
-              <Pressable onPress={closeFoodModal} hitSlop={12}>
-                <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
+      <Sheet visible={foodModalVisible} onClose={closeFoodModal} title="Ajouter un aliment" size="large">
+        <View style={styles.slotRow}>
+          {MEAL_SLOT_OPTIONS.map(([slot, label]) => {
+            const isActive = activeMealSlot === slot;
+            return (
+              <Pressable
+                key={slot}
+                onPress={() => setActiveMealSlot(slot)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isActive }}
+                style={[styles.slotChip, { backgroundColor: isActive ? colors.primary : colors.cardMuted }]}
+              >
+                <Text style={[typography.captionStrong, { color: isActive ? colors.onPrimary : colors.text }]}>
+                  {label}
+                </Text>
               </Pressable>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Ajouter un aliment</Text>
-              <View style={styles.modalHeaderSpacer} />
-            </View>
+            );
+          })}
+        </View>
 
-            <ScrollView contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
-              <View style={styles.slotRow}>
-                {([
-                  ['breakfast', 'Petit-déj'],
-                  ['lunch', 'Déjeuner'],
-                  ['dinner', 'Dîner'],
-                  ['snack', 'Snack'],
-                ] as Array<[MealSlot, string]>).map(([slot, label]) => (
-                  <Pressable
-                    key={slot}
-                    style={[
-                      styles.slotChip,
-                      { borderColor: colors.border },
-                      activeMealSlot === slot && { backgroundColor: colors.primary, borderColor: colors.primary },
-                    ]}
-                    onPress={() => setActiveMealSlot(slot)}
-                  >
-                    <Text
-                      style={[
-                        styles.slotChipText,
-                        { color: colors.subtleText },
-                        activeMealSlot === slot && styles.slotChipTextActive,
-                      ]}
-                    >
-                      {label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+        <Field label="Nom" value={foodForm.name} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, name: text }))} placeholder="Ex : poulet grillé" />
+        <View style={styles.fieldRow}>
+          <Field label="Quantité" value={foodForm.quantity} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, quantity: text }))} placeholder="1" keyboardType="decimal-pad" />
+          <Field label="Unité" value={foodForm.unit} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, unit: text }))} placeholder="g" />
+        </View>
+        <Field label="Calories (kcal)" value={foodForm.calories} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, calories: text }))} placeholder="0" keyboardType="decimal-pad" />
+        <View style={styles.fieldRow}>
+          <Field label="Protéines (g)" dotColor={colors.protein} value={foodForm.proteinG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, proteinG: text }))} placeholder="0" keyboardType="decimal-pad" />
+          <Field label="Glucides (g)" dotColor={colors.carbs} value={foodForm.carbsG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, carbsG: text }))} placeholder="0" keyboardType="decimal-pad" />
+          <Field label="Lipides (g)" dotColor={colors.fat} value={foodForm.fatG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, fatG: text }))} placeholder="0" keyboardType="decimal-pad" />
+        </View>
 
-              <Field label="Nom" value={foodForm.name} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, name: text }))} placeholder="Ex: Poulet grillé" />
-              <Field label="Quantité" value={foodForm.quantity} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, quantity: text }))} placeholder="1" keyboardType="decimal-pad" />
-              <Field label="Unité" value={foodForm.unit} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, unit: text }))} placeholder="g" />
-              <Field label="Calories" value={foodForm.calories} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, calories: text }))} placeholder="0" keyboardType="decimal-pad" />
-              <Field label="Protéines" value={foodForm.proteinG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, proteinG: text }))} placeholder="0" keyboardType="decimal-pad" />
-              <Field label="Glucides" value={foodForm.carbsG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, carbsG: text }))} placeholder="0" keyboardType="decimal-pad" />
-              <Field label="Lipides" value={foodForm.fatG} onChangeText={(text) => setFoodForm((prev) => ({ ...prev, fatG: text }))} placeholder="0" keyboardType="decimal-pad" />
+        <Button label="Ajouter au journal" icon="add" onPress={handleValidateFood} />
+      </Sheet>
 
-              <Pressable style={[styles.modalValidateButton, { backgroundColor: colors.primary }]} onPress={handleValidateFood}>
-                <Text style={styles.modalValidateButtonText}>Ajouter au journal</Text>
-              </Pressable>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <Sheet visible={goalsModalVisible} onClose={closeGoalsModal} title="Objectifs quotidiens">
+        <Field label="Calories (kcal)" value={goalForm.calories} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, calories: text }))} placeholder="2000" keyboardType="number-pad" />
+        <View style={styles.fieldRow}>
+          <Field label="Protéines (g)" dotColor={colors.protein} value={goalForm.proteinG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, proteinG: text }))} placeholder="140" keyboardType="number-pad" />
+          <Field label="Glucides (g)" dotColor={colors.carbs} value={goalForm.carbsG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, carbsG: text }))} placeholder="220" keyboardType="number-pad" />
+          <Field label="Lipides (g)" dotColor={colors.fat} value={goalForm.fatG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, fatG: text }))} placeholder="70" keyboardType="number-pad" />
+        </View>
+        <Field label="Eau (ml)" dotColor={colors.water} value={goalForm.waterMl} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, waterMl: text }))} placeholder="2500" keyboardType="number-pad" />
 
-      <Modal
-        visible={goalsModalVisible}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={closeGoalsModal}
-      >
-        <Pressable style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} onPress={closeGoalsModal}>
-          <Pressable style={[styles.modalSheet, { backgroundColor: colors.background }]} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeaderRow}>
-              <Pressable onPress={closeGoalsModal} hitSlop={12}>
-                <Text style={[styles.modalCloseButton, { color: colors.text }]}>{'✕'}</Text>
-              </Pressable>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Objectifs nutritionnels</Text>
-              <View style={styles.modalHeaderSpacer} />
-            </View>
-
-            <ScrollView contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
-              <Field label="Calories" value={goalForm.calories} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, calories: text }))} placeholder="2000" keyboardType="number-pad" />
-              <Field label="Protéines" value={goalForm.proteinG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, proteinG: text }))} placeholder="140" keyboardType="number-pad" />
-              <Field label="Glucides" value={goalForm.carbsG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, carbsG: text }))} placeholder="220" keyboardType="number-pad" />
-              <Field label="Lipides" value={goalForm.fatG} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, fatG: text }))} placeholder="70" keyboardType="number-pad" />
-              <Field label="Eau (ml)" value={goalForm.waterMl} onChangeText={(text) => setGoalForm((prev) => ({ ...prev, waterMl: text }))} placeholder="2500" keyboardType="number-pad" />
-
-              <Pressable style={[styles.modalValidateButton, { backgroundColor: colors.primary }]} onPress={handleValidateGoals}>
-                <Text style={styles.modalValidateButtonText}>Enregistrer les objectifs</Text>
-              </Pressable>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </ScrollView>
+        <Button label="Enregistrer les objectifs" icon="checkmark" onPress={handleValidateGoals} />
+      </Sheet>
+    </View>
   );
 }
+
+const MEAL_SLOT_OPTIONS: Array<[MealSlot, string]> = [
+  ['breakfast', 'Petit-déj'],
+  ['lunch', 'Déjeuner'],
+  ['dinner', 'Dîner'],
+  ['snack', 'Collation'],
+];
 
 function Field({
   label,
   value,
   onChangeText,
   placeholder,
+  dotColor,
   keyboardType = 'default',
 }: {
   label: string;
   value: string;
   onChangeText: (text: string) => void;
   placeholder: string;
+  dotColor?: string;
   keyboardType?: 'default' | 'numeric' | 'decimal-pad' | 'number-pad';
 }) {
   const colors = useThemeColors();
   return (
-    <View style={styles.fieldRow}>
-      <Text style={[styles.fieldLabel, { color: colors.subtleText }]}>{label}</Text>
+    <View style={styles.field}>
+      <View style={styles.fieldLabelRow}>
+        {dotColor ? <View style={[styles.dot, { backgroundColor: dotColor }]} /> : null}
+        <Text style={[typography.captionStrong, { color: colors.subtleText }]} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
       <TextInput
-        style={[styles.fieldInput, { color: colors.text, borderColor: colors.border }]}
+        style={[typography.body, styles.fieldInput, { color: colors.text, backgroundColor: colors.cardMuted }]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -349,64 +330,12 @@ function Field({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  contentContainer: {
-    padding: 16,
-    paddingTop: 60,
-    paddingBottom: 36,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: { fontSize: 24, fontWeight: 'bold' },
-  resetText: { fontSize: 13, fontWeight: '600' },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    maxHeight: '80%',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-  modalHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  modalCloseButton: { fontSize: 20, fontWeight: '600' },
-  modalTitle: { fontSize: 18, fontWeight: 'bold' },
-  modalHeaderSpacer: { width: 20 },
-  modalScrollContent: { paddingBottom: 24 },
-  slotRow: { flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
-  slotChip: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  slotChipText: { fontSize: 12, fontWeight: '600' },
-  slotChipTextActive: { color: '#fff' },
-  fieldRow: { marginBottom: 12 },
-  fieldLabel: { fontSize: 12, fontWeight: '600', marginBottom: 6 },
-  fieldInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-  },
-  modalValidateButton: {
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 6,
-  },
-  modalValidateButtonText: { fontSize: 16, color: '#fff', fontWeight: '700' },
+  contentContainer: { paddingHorizontal: SCREEN_PADDING, paddingBottom: spacing.xxl, gap: spacing.md },
+  slotRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
+  slotChip: { borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  fieldRow: { flexDirection: 'row', gap: spacing.sm },
+  field: { flex: 1, gap: spacing.xs + 2 },
+  fieldLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  fieldInput: { borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2 },
 });

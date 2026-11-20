@@ -1,102 +1,71 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useThemeColors } from '../theme/useThemeColors';
+import { radius, spacing, typography } from '../theme/tokens';
+import { formatInteger } from '../utils/format';
 
 type Props = {
   consumedCalories: number;
   targetCalories: number;
 };
 
+/**
+ * Carte principale de la journée : calories consommées, restantes et jauge.
+ * La zone cible (±10 % de l'objectif) est dessinée en fond de jauge.
+ */
 export default function CalorieProgressCard({ consumedCalories, targetCalories }: Props) {
   const colors = useThemeColors();
-  const rangeMin = Math.round(targetCalories * 0.9);
-  const rangeMax = Math.round(targetCalories * 1.1);
-  const barMax = Math.round(targetCalories * 1.3);
+  const target = Math.max(1, targetCalories);
+  const rangeMin = Math.round(target * 0.9);
+  const rangeMax = Math.round(target * 1.1);
+  const barMax = target * 1.3;
 
-  const fillPercent = Math.min(100, (consumedCalories / barMax) * 100);
-  const markerPercent = Math.min(100, (targetCalories / barMax) * 100);
+  const consumed = Math.round(consumedCalories);
+  const remaining = Math.round(target - consumed);
+  const isOver = consumed > rangeMax;
+
+  const toPercent = (value: number) => `${Math.min(100, (value / barMax) * 100)}%` as const;
 
   return (
     <View style={[styles.card, { backgroundColor: colors.card }]}>
       <View style={styles.topRow}>
         <View>
-          <Text style={[styles.consumedValue, { color: colors.text }]}>{consumedCalories}</Text>
-          <Text style={[styles.consumedLabel, { color: colors.subtleText }]}>kcal</Text>
+          <Text style={[typography.caption, { color: colors.subtleText }]}>Consommées</Text>
+          <Text style={[styles.bigNumber, { color: colors.text }]}>
+            {formatInteger(consumed)}
+            <Text style={[typography.headline, { color: colors.subtleText }]}> / {formatInteger(target)} kcal</Text>
+          </Text>
         </View>
-
-        <View style={styles.infoColumn}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoIcon}>🎯</Text>
-            <Text style={[styles.infoText, { color: colors.text }]}>{targetCalories} kcal</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoIcon}>◐</Text>
-            <Text style={[styles.infoText, { color: colors.text }]}>
-              {rangeMin} - {rangeMax}
-            </Text>
-          </View>
+        <View style={styles.remaining}>
+          <Text style={[typography.caption, { color: colors.subtleText }]}>{remaining >= 0 ? 'Restantes' : 'Dépassement'}</Text>
+          <Text style={[typography.numberLarge, { color: remaining >= 0 ? colors.primary : colors.warning }]}>
+            {formatInteger(Math.abs(remaining))}
+          </Text>
         </View>
       </View>
 
-      <View style={[styles.barTrack, { backgroundColor: colors.border }]}>
-        <View style={[styles.barFill, { width: `${fillPercent}%`, backgroundColor: colors.primary }]} />
-        <View style={[styles.barMarker, { left: `${markerPercent}%`, backgroundColor: colors.background, borderColor: colors.primary }]} />
+      <View style={[styles.track, { backgroundColor: colors.cardMuted }]}>
+        <View
+          style={[
+            styles.zone,
+            { left: toPercent(rangeMin), width: `${((rangeMax - rangeMin) / barMax) * 100}%`, backgroundColor: colors.primarySoft },
+          ]}
+        />
+        <View style={[styles.fill, { width: toPercent(consumed), backgroundColor: isOver ? colors.warning : colors.primary }]} />
       </View>
-      <View style={styles.barLabelsRow}>
-        <Text style={[styles.barLabel, { color: colors.subtleText }]}>0</Text>
-        <Text style={[styles.barLabel, { color: colors.subtleText }]}>{barMax}</Text>
-      </View>
+
+      <Text style={[typography.caption, { color: colors.subtleText }]}>
+        Zone cible : {formatInteger(rangeMin)} – {formatInteger(rangeMax)} kcal
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#F2F2F7',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-  },
-  topRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 20,
-  },
-  consumedValue: { fontSize: 44, fontWeight: 'bold' },
-  consumedLabel: { fontSize: 14, color: '#888', marginTop: -2 },
-  infoColumn: { gap: 8 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  infoIcon: { fontSize: 14 },
-  infoText: { fontSize: 14, fontWeight: '600' },
-  barTrack: {
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#E1E1E6',
-    overflow: 'visible',
-  },
-  barFill: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    borderRadius: 5,
-    backgroundColor: '#007AFF',
-  },
-  barMarker: {
-    position: 'absolute',
-    top: -4,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#fff',
-    borderWidth: 3,
-    borderColor: '#007AFF',
-    marginLeft: -9,
-  },
-  barLabelsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  barLabel: { fontSize: 12, color: '#888' },
+  card: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  bigNumber: { fontSize: 36, fontWeight: '800', letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  remaining: { alignItems: 'flex-end' },
+  track: { height: 12, borderRadius: 6, overflow: 'hidden' },
+  zone: { position: 'absolute', top: 0, bottom: 0 },
+  fill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 6 },
 });

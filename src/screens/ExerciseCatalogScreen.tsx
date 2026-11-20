@@ -3,7 +3,11 @@ import { StyleSheet, Text, View, Pressable, TextInput, SectionList } from 'react
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
 import { EXERCISE_CATALOG } from '../data/exerciseCatalog';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useThemeColors } from '../theme/useThemeColors';
+import { radius, SCREEN_PADDING, spacing, typography } from '../theme/tokens';
+import { pluralize } from '../utils/confirm';
+import { Button, EmptyState, IconButton, ScreenHeader } from '../components/ui';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'ExerciseCatalog'>;
@@ -72,124 +76,146 @@ export default function ExerciseCatalogScreen({ route, navigation }: Props) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.headerRow}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Text style={[styles.backButton, { color: colors.primary }]}>{'‹ Retour'}</Text>
-        </Pressable>
+      <ScreenHeader title="Ajouter des exercices" onBack={() => navigation.goBack()} />
+
+      <View style={styles.searchBlock}>
+        <View style={[styles.searchField, { backgroundColor: colors.card }]}>
+          <Ionicons name="search" size={18} color={colors.subtleText} />
+          <TextInput
+            style={[typography.body, styles.searchInput, { color: colors.text }]}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Rechercher ou créer un exercice"
+            placeholderTextColor={colors.subtleText}
+            clearButtonMode="while-editing"
+            autoCorrect={false}
+          />
+          {query.length > 0 ? (
+            <IconButton icon="close-circle" label="Effacer la recherche" tone="neutral" size={28} onPress={() => setQuery('')} />
+          ) : null}
+        </View>
+
+        {trimmedQuery.length > 0 && !exactMatchExists ? (
+          <Pressable
+            onPress={handleCreateCustom}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.createRow, { backgroundColor: colors.primarySoft }, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="add-circle" size={20} color={colors.primary} />
+            <Text style={[typography.bodyStrong, styles.flex, { color: colors.primary }]} numberOfLines={1}>
+              Créer « {trimmedQuery} »
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
-
-      <Text style={[styles.title, { color: colors.text }]}>Catalogue d'exercices</Text>
-
-      <TextInput
-        style={[styles.searchInput, { color: colors.text, borderColor: colors.border }]}
-        value={query}
-        onChangeText={setQuery}
-        placeholder="Rechercher ou créer un exercice..."
-        placeholderTextColor={colors.subtleText}
-        clearButtonMode="while-editing"
-      />
-
-      {trimmedQuery.length > 0 && !exactMatchExists && (
-        <Pressable style={[styles.createRow, { backgroundColor: colors.card }]} onPress={handleCreateCustom}>
-          <Text style={[styles.createRowText, { color: colors.primary }]}>+ Créer "{trimmedQuery}"</Text>
-        </Pressable>
-      )}
 
       <SectionList
         sections={sections}
         keyExtractor={(item) => item}
+        contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
+        stickySectionHeadersEnabled
         renderSectionHeader={({ section: { title } }) => (
-          <Text style={[styles.sectionHeader, { color: colors.subtleText, backgroundColor: colors.background }]}>{title}</Text>
+          <Text
+            style={[
+              typography.captionStrong,
+              styles.sectionHeader,
+              { color: colors.subtleText, backgroundColor: colors.background },
+            ]}
+          >
+            {title}
+          </Text>
         )}
-        renderItem={({ item }) => {
+        renderItem={({ item, index, section }) => {
           const isSelected = selected.includes(item);
+          const isFirst = index === 0;
+          const isLast = index === section.data.length - 1;
           return (
-            <Pressable style={[styles.item, { borderBottomColor: colors.border }]} onPress={() => toggleSelect(item)}>
-              <Text style={[styles.itemText, { color: colors.text }]}>{item}</Text>
-              <View
-                style={[
-                  styles.checkbox,
-                  { borderColor: colors.border },
-                  isSelected && { backgroundColor: colors.primary, borderColor: colors.primary },
-                ]}
-              >
-                {isSelected && <Text style={styles.checkboxMark}>✓</Text>}
-              </View>
+            <Pressable
+              onPress={() => toggleSelect(item)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: isSelected }}
+              style={({ pressed }) => [
+                styles.item,
+                { backgroundColor: colors.card },
+                isFirst && styles.itemFirst,
+                isLast && styles.itemLast,
+                !isFirst && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text style={[typography.body, styles.flex, { color: colors.text }]}>{item}</Text>
+              <Ionicons
+                name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
+                size={24}
+                color={isSelected ? colors.primary : colors.border}
+              />
             </Pressable>
           );
         }}
-        ListEmptyComponent={<Text style={[styles.empty, { color: colors.subtleText }]}>Aucun exercice trouvé.</Text>}
-        stickySectionHeadersEnabled
+        ListEmptyComponent={
+          <EmptyState
+            icon="search-outline"
+            title="Aucun exercice trouvé"
+            message="Utilisez « Créer » pour ajouter votre propre exercice."
+          />
+        }
       />
 
-      {selected.length > 0 && (
-        <Pressable style={[styles.confirmButton, { backgroundColor: colors.primary }]} onPress={handleConfirm}>
-          <Text style={styles.confirmButtonText}>
-            Ajouter {selected.length} exercice{selected.length > 1 ? 's' : ''}
-          </Text>
-        </Pressable>
-      )}
+      {selected.length > 0 ? (
+        <View style={[styles.footer, { borderTopColor: colors.border }]}>
+          <Button
+            label={`Ajouter ${pluralize(selected.length, 'exercice')}`}
+            icon="checkmark"
+            onPress={handleConfirm}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 60 },
-  headerRow: { marginBottom: 8 },
-  backButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 12 },
-  searchInput: {
-    borderWidth: 1,
-    borderColor: '#C7C7CC',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 16,
-    marginBottom: 8,
+  container: { flex: 1 },
+  flex: { flex: 1 },
+  searchBlock: { paddingHorizontal: SCREEN_PADDING, gap: spacing.sm, marginBottom: spacing.sm },
+  searchField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    minHeight: 44,
   },
+  searchInput: { flex: 1, paddingVertical: spacing.sm },
   createRow: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#EAF2FF',
-    borderRadius: 8,
-    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    minHeight: 44,
   },
-  createRowText: { fontSize: 15, color: '#007AFF', fontWeight: '600' },
+  listContent: { paddingHorizontal: SCREEN_PADDING, paddingBottom: spacing.xl },
   sectionHeader: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#888',
-    backgroundColor: '#fff',
-    paddingVertical: 8,
     textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   item: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F2F2F7',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    minHeight: 48,
   },
-  itemText: { fontSize: 16, flex: 1 },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#C7C7CC',
-    alignItems: 'center',
-    justifyContent: 'center',
+  itemFirst: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  itemLast: { borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
+  footer: {
+    paddingHorizontal: SCREEN_PADDING,
+    paddingVertical: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  checkboxChecked: { backgroundColor: '#007AFF', borderColor: '#007AFF' },
-  checkboxMark: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  empty: { color: '#888', marginTop: 16 },
-  confirmButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  confirmButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View, Pressable } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useThemeColors } from '../theme/useThemeColors';
 import { DECIMAL_SEPARATOR } from '../utils/number';
 
@@ -38,7 +39,7 @@ export default function NumericKeypad({
   const renderDigitKey = (key: string, label = key) => (
     <Pressable
       key={key}
-      style={[styles.key, { backgroundColor: colors.card }]}
+      style={[styles.key, { backgroundColor: colors.cardMuted }]}
       onPress={() => onDigitPress(key)}
       hitSlop={8}
       accessibilityRole="button"
@@ -54,14 +55,14 @@ export default function NumericKeypad({
   ) => (
     <Pressable
       key="extra"
-      style={[style, { backgroundColor: key.active ? colors.primary : colors.card }]}
+      style={[style, { backgroundColor: key.active ? colors.primary : colors.cardMuted }]}
       onPress={key.onPress}
       hitSlop={8}
       accessibilityRole="switch"
       accessibilityState={{ checked: key.active }}
       accessibilityLabel={key.label}
     >
-      <Text style={[styles.extraKeyText, { color: key.active ? '#fff' : colors.text }]}>
+      <Text style={[styles.extraKeyText, { color: key.active ? colors.onPrimary : colors.text }]}>
         {key.label}
       </Text>
     </Pressable>
@@ -88,13 +89,13 @@ export default function NumericKeypad({
         {renderDigitKey('0')}
         <Pressable
           key="del"
-          style={[styles.key, { backgroundColor: colors.card }]}
+          style={[styles.key, { backgroundColor: colors.cardMuted }]}
           onPress={onDeletePress}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel="Effacer"
         >
-          <Text style={styles.deleteKeyText}>⌫</Text>
+          <Ionicons name="backspace-outline" size={24} color={colors.text} />
         </Pressable>
       </View>
       {extraKeyOnOwnRow ? (
@@ -114,7 +115,7 @@ const styles = StyleSheet.create({
   key: {
     flex: 1,
     marginHorizontal: 4,
-    height: 44,
+    height: 52,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
@@ -122,12 +123,11 @@ const styles = StyleSheet.create({
   wideKey: {
     flex: 1,
     marginHorizontal: 4,
-    height: 40,
+    height: 44,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  keyText: { fontSize: 20, fontWeight: '600' },
+  keyText: { fontSize: 22, fontWeight: '600', fontVariant: ['tabular-nums'] },
   extraKeyText: { fontSize: 13, fontWeight: '700', letterSpacing: 0.5 },
-  deleteKeyText: { fontSize: 18, color: '#FF3B30', fontWeight: '600' },
 });

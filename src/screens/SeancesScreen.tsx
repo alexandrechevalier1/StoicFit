@@ -1,34 +1,28 @@
 import { useState } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  FlatList,
-  Pressable,
-  TextInput,
-  Image,
-  Alert,
-} from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { FlatList, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
 import { useThemeColors } from '../theme/useThemeColors';
+import { SCREEN_PADDING, spacing } from '../theme/tokens';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 import type { Seance } from '../models';
 import { confirmDestructive, joinLines, keptHistoryNote, pluralize } from '../utils/confirm';
+import { pickSquareImage } from '../utils/pickImage';
+import { Button, EditableItemRow, EmptyState, IconButton, ScreenHeader } from '../components/ui';
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'SeancesList'>;
 
 export default function SeancesScreen({ route, navigation }: Props) {
   const { programId } = route.params;
-  const program = useProgramStore((state) =>
-    state.programs.find((p) => p.id === programId)
-  );
+  const program = useProgramStore((state) => state.programs.find((p) => p.id === programId));
   const addSeance = useProgramStore((state) => state.addSeance);
   const removeSeance = useProgramStore((state) => state.removeSeance);
   const updateSeance = useProgramStore((state) => state.updateSeance);
   const setLogs = useProgramStore((state) => state.setLogs);
   const colors = useThemeColors();
+  const [isEditing, setIsEditing] = useState(false);
+
+  const seances = program?.seances ?? [];
 
   const confirmRemoveSeance = (seance: Seance) => {
     const exerciseCount = seance.exercises.length;
@@ -44,9 +38,6 @@ export default function SeancesScreen({ route, navigation }: Props) {
       onConfirm: () => removeSeance(programId, seance.id),
     });
   };
-  const [isEditing, setIsEditing] = useState(false);
-
-  const seances = program?.seances ?? [];
 
   const handleAddSeance = () => {
     addSeance(programId, {
@@ -58,188 +49,71 @@ export default function SeancesScreen({ route, navigation }: Props) {
   };
 
   const handlePickImage = async (seanceId: string) => {
-    if (!isEditing) return;
-
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permission requise',
-        "L'accès à la galerie photo est nécessaire pour choisir une image."
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets.length > 0) {
-      updateSeance(programId, seanceId, { imageUri: result.assets[0].uri });
-    }
+    const uri = await pickSquareImage();
+    if (uri) updateSeance(programId, seanceId, { imageUri: uri });
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.headerRow}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Text style={[styles.backButton, { color: colors.primary }]}>{'‹ Retour'}</Text>
-        </Pressable>
-        <View style={styles.headerActions}>
-          <Pressable onPress={() => setIsEditing((v) => !v)} hitSlop={12}>
-            <Text style={[styles.editButton, { color: colors.primary }]}>
-              {isEditing ? 'Terminé' : 'Modifier'}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
+      <ScreenHeader
+        title={program?.name || 'Programme'}
+        subtitle={seances.length > 0 ? pluralize(seances.length, 'séance') : undefined}
+        onBack={() => navigation.goBack()}
+        actions={
+          seances.length > 0 ? (
+            <>
+              <Button
+                label={isEditing ? 'Terminé' : 'Modifier'}
+                variant={isEditing ? 'filled' : 'tinted'}
+                size="sm"
+                onPress={() => setIsEditing((v) => !v)}
+              />
+              {!isEditing ? (
+                <IconButton icon="add" label="Ajouter une séance" variant="filled" size={32} onPress={handleAddSeance} />
+              ) : null}
+            </>
+          ) : null
+        }
+      />
 
-      <View style={styles.titleRow}>
-        <View>
-          <Text style={[styles.title, { color: colors.text }]}>Séance</Text>
-          {program && <Text style={[styles.programSubtitle, { color: colors.subtleText }]}>{program.name}</Text>}
-        </View>
-        <Pressable onPress={handleAddSeance} style={[styles.addButton, { backgroundColor: colors.primary }]} hitSlop={12}>
-          <Text style={styles.addButtonText}>+</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.listContainer}>
-      {seances.length === 0 && !isEditing ? (
-        <Text style={[styles.empty, { color: colors.subtleText }]}>Aucune séance pour le moment.</Text>
-      ) : (
-        <FlatList
-          data={seances}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <Pressable
-              style={styles.item}
-              onPress={() =>
-                !isEditing &&
-                navigation.navigate('ExercisesList', {
-                  programId,
-                  seanceId: item.id,
-                })
-              }
-              disabled={isEditing}
-            >
-              <Pressable
-                onPress={() => handlePickImage(item.id)}
-                disabled={!isEditing}
-                style={[styles.thumbnail, { backgroundColor: colors.card }]}
-              >
-                {item.imageUri ? (
-                  <Image source={{ uri: item.imageUri }} style={styles.thumbnailImage} />
-                ) : (
-                  <Text style={styles.thumbnailPlaceholder}>📷</Text>
-                )}
-              </Pressable>
-
-              <View style={styles.itemTextContainer}>
-                {isEditing ? (
-                  <TextInput
-                    style={[styles.itemText, styles.itemTextInput, { color: colors.text, borderBottomColor: colors.border }]}
-                    value={item.name}
-                    onChangeText={(text) => updateSeance(programId, item.id, { name: text })}
-                    placeholder="Nom de la séance"
-                    placeholderTextColor={colors.subtleText}
-                  />
-                ) : (
-                  <Text style={[styles.itemText, { color: colors.text }]}>{item.name}</Text>
-                )}
-
-                {isEditing ? (
-                  <TextInput
-                    style={[styles.itemSubtitle, styles.itemTextInput, { color: colors.subtleText, borderBottomColor: colors.border }]}
-                    value={item.subtitle}
-                    onChangeText={(text) => updateSeance(programId, item.id, { subtitle: text })}
-                    placeholder="Sous-titre (ex: 3 exercices)"
-                    placeholderTextColor={colors.subtleText}
-                  />
-                ) : (
-                  item.subtitle ? (
-                    <Text style={[styles.itemSubtitle, { color: colors.subtleText }]}>{item.subtitle}</Text>
-                  ) : null
-                )}
-              </View>
-
-              {isEditing && (
-                <Pressable onPress={() => confirmRemoveSeance(item)} hitSlop={12}>
-                  <Text style={[styles.deleteButton, { color: colors.danger }]}>Supprimer</Text>
-                </Pressable>
-              )}
-            </Pressable>
-          )}
-        />
-      )}
-      </View>
+      <FlatList
+        data={seances}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ListEmptyComponent={
+          <EmptyState
+            icon="calendar-outline"
+            title="Aucune séance"
+            message="Ajoutez une séance (ex. « Haut du corps »), puis ses exercices."
+            actionLabel="Ajouter une séance"
+            onAction={handleAddSeance}
+          />
+        }
+        renderItem={({ item }) => (
+          <EditableItemRow
+            name={item.name}
+            note={item.subtitle}
+            meta={item.exercises.length > 0 ? pluralize(item.exercises.length, 'exercice') : 'Aucun exercice'}
+            imageUri={item.imageUri}
+            fallbackIcon="calendar-outline"
+            isEditing={isEditing}
+            namePlaceholder="Nom de la séance"
+            notePlaceholder="Note (ex : Haut du corps)"
+            onPress={() => navigation.navigate('ExercisesList', { programId, seanceId: item.id })}
+            onChangeName={(text) => updateSeance(programId, item.id, { name: text })}
+            onChangeNote={(text) => updateSeance(programId, item.id, { subtitle: text })}
+            onPickImage={() => handlePickImage(item.id)}
+            onDelete={() => confirmRemoveSeance(item)}
+          />
+        )}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 60 },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  backButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  titleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: { fontSize: 24, fontWeight: 'bold' },
-  programSubtitle: { fontSize: 14, color: '#888', marginTop: 2 },
-  listContainer: { flex: 1 },
-  addButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonText: {
-    fontSize: 22,
-    color: '#fff',
-    fontWeight: '600',
-    includeFontPadding: false,
-    textAlignVertical: 'center',
-  },
-  editButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
-  empty: { color: '#888', marginBottom: 16 },
-  item: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    gap: 12,
-  },
-  thumbnail: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: '#F2F2F7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  thumbnailImage: { width: '100%', height: '100%' },
-  thumbnailPlaceholder: { fontSize: 20 },
-  itemTextContainer: { flex: 1 },
-  itemText: { fontSize: 16 },
-  itemSubtitle: { fontSize: 13, color: '#888', marginTop: 2 },
-  itemTextInput: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#C7C7CC',
-    paddingVertical: 2,
-  },
-  deleteButton: { fontSize: 14, color: '#FF3B30' },
+  container: { flex: 1 },
+  listContent: { paddingHorizontal: SCREEN_PADDING, paddingBottom: spacing.xxl },
+  separator: { height: spacing.sm },
 });

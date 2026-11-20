@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, View, Vibration } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../theme/useThemeColors';
+import { radius, spacing, typography } from '../theme/tokens';
+import { Button, IconButton } from './ui';
 
 const PRESETS_SECONDS = [30, 60, 90, 120];
 
@@ -12,6 +16,7 @@ function formatSeconds(totalSeconds: number): string {
 
 export default function RestTimerButton() {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState(PRESETS_SECONDS[0]);
   const [isRunning, setIsRunning] = useState(false);
@@ -57,8 +62,18 @@ export default function RestTimerButton() {
 
   return (
     <>
-      <Pressable onPress={() => setIsMenuVisible(true)} hitSlop={12} style={styles.triggerButton}>
-        <Text style={styles.triggerIcon}>⏱️</Text>
+      <Pressable
+        onPress={() => setIsMenuVisible(true)}
+        hitSlop={4}
+        accessibilityRole="button"
+        accessibilityLabel="Minuteur de récupération"
+        style={({ pressed }) => [
+          styles.triggerButton,
+          { backgroundColor: colors.primarySoft },
+          pressed && { opacity: 0.6 },
+        ]}
+      >
+        <Ionicons name="timer-outline" size={22} color={colors.primary} />
         {isRunning && <View style={[styles.runningDot, { backgroundColor: colors.primary }]} />}
       </Pressable>
 
@@ -67,18 +82,20 @@ export default function RestTimerButton() {
           <Animated.View
             style={[
               styles.panel,
-              { backgroundColor: colors.background, transform: [{ translateY: slideAnim }] },
+              {
+                marginTop: insets.top + 8,
+                backgroundColor: colors.card,
+                transform: [{ translateY: slideAnim }],
+              },
             ]}
           >
-            <Pressable onPress={(e) => e.stopPropagation()}>
+            <Pressable onPress={(e) => e.stopPropagation()} style={styles.panelContent}>
               <View style={styles.headerRow}>
-                <Text style={[styles.title, { color: colors.text }]}>Temps de récupération</Text>
-                <Pressable onPress={handleClose} hitSlop={12}>
-                  <Text style={[styles.closeButton, { color: colors.primary }]}>{'✕'}</Text>
-                </Pressable>
+                <Text style={[typography.headline, { color: colors.text }]}>Récupération</Text>
+                <IconButton icon="close" label="Fermer" tone="neutral" size={36} onPress={handleClose} />
               </View>
 
-              <Text style={[styles.countdown, { color: colors.text }]}>
+              <Text style={[styles.countdown, { color: remainingSeconds <= 0 ? colors.success : colors.text }]}>
                 {formatSeconds(Math.max(0, remainingSeconds))}
               </Text>
 
@@ -86,31 +103,33 @@ export default function RestTimerButton() {
                 {PRESETS_SECONDS.map((seconds) => (
                   <Pressable
                     key={seconds}
-                    style={[styles.presetButton, { borderColor: colors.border }]}
+                    style={({ pressed }) => [
+                      styles.presetButton,
+                      { backgroundColor: colors.cardMuted },
+                      pressed && { opacity: 0.6 },
+                    ]}
                     onPress={() => handleSelectPreset(seconds)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Lancer ${seconds} secondes`}
                   >
-                    <Text style={[styles.presetText, { color: colors.text }]}>{seconds}s</Text>
+                    <Text style={[typography.captionStrong, styles.tabular, { color: colors.text }]}>
+                      {formatSeconds(seconds)}
+                    </Text>
                   </Pressable>
                 ))}
               </View>
 
               <View style={styles.controlsRow}>
-                <Pressable
-                  style={[styles.controlButton, { backgroundColor: colors.primary }]}
-                  onPress={handleToggleRunning}
-                >
-                  <Text style={styles.controlButtonText}>
-                    {isRunning ? 'Pause' : 'Démarrer'}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.controlButton, styles.resetButton, { borderColor: colors.border }]}
-                  onPress={handleReset}
-                >
-                  <Text style={[styles.controlButtonText, { color: colors.text }]}>
-                    Réinitialiser
-                  </Text>
-                </Pressable>
+                <View style={styles.flex}>
+                  <Button
+                    label={isRunning ? 'Pause' : 'Démarrer'}
+                    icon={isRunning ? 'pause' : 'play'}
+                    onPress={handleToggleRunning}
+                  />
+                </View>
+                <View style={styles.flex}>
+                  <Button label="Réinitialiser" icon="refresh" variant="tinted" onPress={handleReset} />
+                </View>
               </View>
             </Pressable>
           </Animated.View>
@@ -121,8 +140,9 @@ export default function RestTimerButton() {
 }
 
 const styles = StyleSheet.create({
-  triggerButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  triggerIcon: { fontSize: 20 },
+  flex: { flex: 1 },
+  tabular: { fontVariant: ['tabular-nums'] },
+  triggerButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   runningDot: {
     position: 'absolute',
     top: 4,
@@ -133,46 +153,25 @@ const styles = StyleSheet.create({
   },
   overlay: { flex: 1, justifyContent: 'flex-start' },
   panel: {
-    marginTop: 56,
-    marginHorizontal: 16,
-    borderRadius: 16,
-    padding: 20,
+    marginHorizontal: spacing.lg,
+    borderRadius: radius.lg + 4,
+    padding: spacing.lg,
     shadowColor: '#000',
     shadowOpacity: 0.2,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
     elevation: 8,
   },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  title: { fontSize: 16, fontWeight: '700' },
-  closeButton: { fontSize: 18, fontWeight: '600' },
+  panelContent: { gap: spacing.md },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   countdown: {
-    fontSize: 48,
-    fontWeight: 'bold',
+    fontSize: 56,
+    fontWeight: '800',
+    letterSpacing: -1,
     textAlign: 'center',
-    marginVertical: 12,
+    fontVariant: ['tabular-nums'],
   },
-  presetsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 16 },
-  presetButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  presetText: { fontSize: 14, fontWeight: '600' },
-  controlsRow: { flexDirection: 'row', gap: 10 },
-  controlButton: {
-    flex: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  resetButton: { backgroundColor: 'transparent', borderWidth: 1 },
-  controlButtonText: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  presetsRow: { flexDirection: 'row', gap: spacing.sm },
+  presetButton: { flex: 1, minHeight: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  controlsRow: { flexDirection: 'row', gap: spacing.sm },
 });

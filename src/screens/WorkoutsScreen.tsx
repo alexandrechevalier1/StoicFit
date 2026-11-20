@@ -1,93 +1,77 @@
 import { useMemo, useState } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  FlatList,
-  Pressable,
-  TextInput,
-  Image,
-  Alert,
-} from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useProgramStore } from '../store/programStore';
 import { useThemeColors } from '../theme/useThemeColors';
+import { radius, SCREEN_PADDING, spacing, typography } from '../theme/tokens';
 import type { CompletedSeance, Program } from '../models';
 import { confirmDestructive, joinLines, keptHistoryNote, pluralize } from '../utils/confirm';
+import { formatInteger, formatRelativeDay, formatWeight } from '../utils/format';
+import { pickSquareImage } from '../utils/pickImage';
 import { useWorkoutHistory } from '../hooks/useWorkoutHistory';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
+import { Button, EditableItemRow, EmptyState, IconButton, ScreenHeader } from '../components/ui';
 
-// Nombre de dernières séances prises en compte pour le récap de progrès
-const RECENT_COMPLETED_SEANCES_COUNT = 5;
-
-type WorkoutPreviewStats = {
-  seanceCount: number;
-  totalVolumeKg: number;
-  lastSeanceDate: string | undefined;
+type WeekStats = {
   thisWeekSeanceCount: number;
   thisWeekVolumeKg: number;
+  lastSeanceDate: string | undefined;
   latestRecord: { exerciseName: string; weightKg: number; reps: number } | null;
 };
 
-function computeRecentStats(history: CompletedSeance[]): WorkoutPreviewStats {
-  const recent = [...history]
-    .sort((a, b) => new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime())
-    .slice(0, RECENT_COMPLETED_SEANCES_COUNT);
-
-  const totalVolumeKg = recent.reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
-
-  const lastSeanceDate = recent[0]?.endedAt;
-
+function startOfWeek(): Date {
   const weekStart = new Date();
   weekStart.setHours(0, 0, 0, 0);
   const day = weekStart.getDay();
-  const offset = day === 0 ? 6 : day - 1;
-  weekStart.setDate(weekStart.getDate() - offset);
+  weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1));
+  return weekStart;
+}
 
+function computeWeekStats(history: CompletedSeance[]): WeekStats {
+  const chronological = [...history].sort(
+    (a, b) => new Date(a.endedAt).getTime() - new Date(b.endedAt).getTime()
+  );
+
+  const weekStartMs = startOfWeek().getTime();
   const thisWeekEntries = history.filter((entry) => {
     const endedAt = new Date(entry.endedAt).getTime();
-    return Number.isFinite(endedAt) && endedAt >= weekStart.getTime();
+    return Number.isFinite(endedAt) && endedAt >= weekStartMs;
   });
 
-  const thisWeekVolumeKg = thisWeekEntries.reduce((sum, entry) => sum + entry.totalVolumeKg, 0);
-
-  let latestRecord: { exerciseName: string; weightKg: number; reps: number } | null = null;
+  // Dernier record battu : on rejoue l'historique dans l'ordre et on garde
+  // la dernière série qui a dépassé le meilleur précédent de son exercice.
+  let latestRecord: WeekStats['latestRecord'] = null;
   const bestByExercise = new Map<string, { weightKg: number; reps: number }>();
 
-  [...history]
-    .sort((a, b) => new Date(a.endedAt).getTime() - new Date(b.endedAt).getTime())
-    .forEach((entry) => {
-      entry.exercises.forEach((exercise) => {
-        const key = exercise.name.trim().toLocaleLowerCase();
+  chronological.forEach((entry) => {
+    entry.exercises.forEach((exercise) => {
+      const key = exercise.name.trim().toLocaleLowerCase();
+      exercise.sets.forEach((setItem) => {
+        const best = bestByExercise.get(key);
+        const isBetter =
+          !best ||
+          setItem.weightKg > best.weightKg ||
+          (setItem.weightKg === best.weightKg && setItem.reps > best.reps);
 
-        exercise.sets.forEach((setItem) => {
-          const best = bestByExercise.get(key);
-          const isBetter =
-            !best ||
-            setItem.weightKg > best.weightKg ||
-            (setItem.weightKg === best.weightKg && setItem.reps > best.reps);
-
-          if (isBetter) {
-            bestByExercise.set(key, { weightKg: setItem.weightKg, reps: setItem.reps });
-            latestRecord = {
-              exerciseName: exercise.name,
-              weightKg: setItem.weightKg,
-              reps: setItem.reps,
-            };
-          }
-        });
+        if (isBetter) {
+          bestByExercise.set(key, { weightKg: setItem.weightKg, reps: setItem.reps });
+          latestRecord = { exerciseName: exercise.name, weightKg: setItem.weightKg, reps: setItem.reps };
+        }
       });
     });
+  });
 
   return {
-    seanceCount: recent.length,
-    totalVolumeKg,
-    lastSeanceDate,
     thisWeekSeanceCount: thisWeekEntries.length,
-    thisWeekVolumeKg,
+    thisWeekVolumeKg: thisWeekEntries.reduce((sum, entry) => sum + entry.totalVolumeKg, 0),
+    lastSeanceDate: chronological[chronological.length - 1]?.endedAt,
     latestRecord,
   };
+}
+
+function formatSet(weightKg: number, reps: number): string {
+  return weightKg > 0 ? `${formatWeight(weightKg)} kg × ${reps}` : pluralize(reps, 'rep');
 }
 
 type Props = NativeStackScreenProps<SeancesStackParamList, 'ProgramsList'>;
@@ -100,6 +84,9 @@ export default function WorkoutsScreen({ navigation }: Props) {
   const removeProgram = useProgramStore((state) => state.removeProgram);
   const updateProgram = useProgramStore((state) => state.updateProgram);
   const colors = useThemeColors();
+  const [isEditing, setIsEditing] = useState(false);
+
+  const stats = useMemo(() => computeWeekStats(history), [history]);
 
   const confirmRemoveProgram = (program: Program) => {
     const seanceCount = program.seances.length;
@@ -118,224 +105,139 @@ export default function WorkoutsScreen({ navigation }: Props) {
       onConfirm: () => removeProgram(program.id),
     });
   };
-  const [isEditing, setIsEditing] = useState(false);
-
-  const stats = useMemo(() => computeRecentStats(history), [history]);
 
   const handleAddProgram = () => {
-    addProgram({
-      id: Date.now().toString(),
-      name: 'Nouveau programme',
-      seances: [],
-    });
+    addProgram({ id: Date.now().toString(), name: 'Nouveau programme', seances: [] });
   };
 
   const handlePickImage = async (programId: string) => {
-    if (!isEditing) return;
-
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permission requise',
-        "L'accès à la galerie photo est nécessaire pour choisir une image."
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets.length > 0) {
-      updateProgram(programId, { imageUri: result.assets[0].uri });
-    }
+    const uri = await pickSquareImage();
+    if (uri) updateProgram(programId, { imageUri: uri });
   };
 
-  const handlePressProgram = (programId: string) => {
-    if (isEditing) return;
-    navigation.navigate('SeancesList', { programId });
-  };
+  const weekCard =
+    history.length > 0 ? (
+      <View style={[styles.weekCard, { backgroundColor: colors.card }]}>
+        <Text style={[typography.captionStrong, styles.overline, { color: colors.subtleText }]}>
+          Cette semaine
+        </Text>
+
+        <View style={styles.metricsRow}>
+          <View style={styles.metric}>
+            <Text style={[typography.numberLarge, { color: colors.text }]}>{stats.thisWeekSeanceCount}</Text>
+            <Text style={[typography.caption, { color: colors.subtleText }]}>
+              {stats.thisWeekSeanceCount > 1 ? 'séances' : 'séance'}
+            </Text>
+          </View>
+          <View style={[styles.metricDivider, { backgroundColor: colors.border }]} />
+          <View style={styles.metric}>
+            <Text style={[typography.numberLarge, { color: colors.text }]}>
+              {formatInteger(stats.thisWeekVolumeKg)}
+              <Text style={[typography.headline, { color: colors.subtleText }]}> kg</Text>
+            </Text>
+            <Text style={[typography.caption, { color: colors.subtleText }]}>volume soulevé</Text>
+          </View>
+        </View>
+
+        <View style={[styles.weekFooter, { borderTopColor: colors.border }]}>
+          {stats.lastSeanceDate ? (
+            <View style={styles.footerLine}>
+              <Ionicons name="time-outline" size={16} color={colors.subtleText} />
+              <Text style={[typography.caption, { color: colors.subtleText }]}>
+                Dernière séance : <Text style={{ color: colors.text }}>{formatRelativeDay(stats.lastSeanceDate)}</Text>
+              </Text>
+            </View>
+          ) : null}
+          {stats.latestRecord ? (
+            <View style={styles.footerLine}>
+              <Ionicons name="trophy-outline" size={16} color={colors.warning} />
+              <Text style={[typography.caption, styles.flexShrink, { color: colors.subtleText }]} numberOfLines={1}>
+                Dernier record :{' '}
+                <Text style={{ color: colors.text }}>
+                  {stats.latestRecord.exerciseName} · {formatSet(stats.latestRecord.weightKg, stats.latestRecord.reps)}
+                </Text>
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    ) : null;
+
+  const listHeader = (
+    <View style={styles.listHeader}>
+      {weekCard}
+      <View style={styles.sectionHeader}>
+        <Text style={[typography.title, { color: colors.text }]}>Programmes</Text>
+        {programs.length > 0 ? (
+          <View style={styles.sectionActions}>
+            <Button
+              label={isEditing ? 'Terminé' : 'Modifier'}
+              variant={isEditing ? 'filled' : 'tinted'}
+              size="sm"
+              onPress={() => setIsEditing((v) => !v)}
+            />
+            {!isEditing ? (
+              <IconButton icon="add" label="Ajouter un programme" variant="filled" size={32} onPress={handleAddProgram} />
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Text style={[styles.pageTitle, { color: colors.text }]}>Sports</Text>
-
-      <View style={styles.headerRow}>
-        <Text style={[styles.title, { color: colors.text }]}>Mes Programmes</Text>
-        <View style={styles.headerActions}>
-          <Pressable
-            onPress={handleAddProgram}
-            style={[styles.addButton, { backgroundColor: colors.primary }]}
-            hitSlop={12}
-          >
-            <Text style={styles.addButtonText}>+</Text>
-          </Pressable>
-          <Pressable onPress={() => setIsEditing((v) => !v)} hitSlop={12}>
-            <Text style={[styles.editButton, { color: colors.primary }]}>
-              {isEditing ? 'Terminé' : 'Modifier'}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.listContainer}>
-      {programs.length === 0 && !isEditing ? (
-        <Text style={[styles.empty, { color: colors.subtleText }]}>Aucun programme pour le moment.</Text>
-      ) : (
-        <FlatList
-          data={programs}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <Pressable style={styles.item} onPress={() => handlePressProgram(item.id)}>
-              <Pressable
-                onPress={() => handlePickImage(item.id)}
-                disabled={!isEditing}
-                style={[styles.thumbnail, { backgroundColor: colors.card }]}
-              >
-                {item.imageUri ? (
-                  <Image source={{ uri: item.imageUri }} style={styles.thumbnailImage} />
-                ) : (
-                  <Text style={styles.thumbnailPlaceholder}>📷</Text>
-                )}
-              </Pressable>
-
-              <View style={styles.itemTextContainer}>
-                {isEditing ? (
-                  <TextInput
-                    style={[styles.itemText, styles.itemTextInput, { color: colors.text, borderBottomColor: colors.border }]}
-                    value={item.name}
-                    onChangeText={(text) => updateProgram(item.id, { name: text })}
-                    placeholder="Nom du programme"
-                    placeholderTextColor={colors.subtleText}
-                  />
-                ) : (
-                  <Text style={[styles.itemText, { color: colors.text }]}>{item.name}</Text>
-                )}
-
-                {isEditing ? (
-                  <TextInput
-                    style={[styles.itemSubtitle, styles.itemTextInput, { color: colors.subtleText, borderBottomColor: colors.border }]}
-                    value={item.subtitle}
-                    onChangeText={(text) => updateProgram(item.id, { subtitle: text })}
-                    placeholder="Sous-titre (ex: 3 exercices)"
-                    placeholderTextColor={colors.subtleText}
-                  />
-                ) : (
-                  item.subtitle ? (
-                    <Text style={[styles.itemSubtitle, { color: colors.subtleText }]}>{item.subtitle}</Text>
-                  ) : null
-                )}
-              </View>
-
-              {isEditing && (
-                <Pressable onPress={() => confirmRemoveProgram(item)} hitSlop={12}>
-                  <Text style={[styles.deleteButton, { color: colors.danger }]}>Supprimer</Text>
-                </Pressable>
-              )}
-            </Pressable>
-          )}
-        />
-      )}
-      </View>
+      <ScreenHeader title="Sport" />
+      <FlatList
+        data={programs}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={
+          <EmptyState
+            icon="barbell-outline"
+            title="Aucun programme"
+            message="Un programme regroupe plusieurs séances, par exemple « Push / Pull / Legs »."
+            actionLabel="Créer un programme"
+            onAction={handleAddProgram}
+          />
+        }
+        renderItem={({ item }) => (
+          <EditableItemRow
+            name={item.name}
+            note={item.subtitle}
+            meta={item.seances.length > 0 ? pluralize(item.seances.length, 'séance') : 'Aucune séance'}
+            imageUri={item.imageUri}
+            fallbackIcon="barbell-outline"
+            isEditing={isEditing}
+            namePlaceholder="Nom du programme"
+            notePlaceholder="Note (ex : 3 jours par semaine)"
+            onPress={() => navigation.navigate('SeancesList', { programId: item.id })}
+            onChangeName={(text) => updateProgram(item.id, { name: text })}
+            onChangeNote={(text) => updateProgram(item.id, { subtitle: text })}
+            onPickImage={() => handlePickImage(item.id)}
+            onDelete={() => confirmRemoveProgram(item)}
+          />
+        )}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 60 },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: { fontSize: 24, fontWeight: 'bold' },
-  pageTitle: { fontSize: 28, fontWeight: 'bold', marginBottom: 20 },
-  progressTitle: { marginTop: 32, marginBottom: 12 },
-  listContainer: { maxHeight: '40%' },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  addButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonText: {
-    fontSize: 22,
-    color: '#fff',
-    fontWeight: '600',
-    includeFontPadding: false,
-    textAlignVertical: 'center',
-  },
-  editButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
-  empty: { color: '#888', marginBottom: 16 },
-  item: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    gap: 12,
-  },
-  thumbnail: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: '#F2F2F7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  thumbnailImage: { width: '100%', height: '100%' },
-  thumbnailPlaceholder: { fontSize: 20 },
-  itemTextContainer: { flex: 1 },
-  itemText: { fontSize: 16 },
-  itemSubtitle: { fontSize: 13, color: '#888', marginTop: 2 },
-  itemTextInput: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#C7C7CC',
-    paddingVertical: 2,
-  },
-  deleteButton: { fontSize: 14, color: '#FF3B30' },
-  analyticsBanner: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    gap: 10,
-  },
-  analyticsBannerTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  analyticsBadge: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  analyticsHeadline: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  analyticsMetricsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  analyticsMetric: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  analyticsSubline: {
-    fontSize: 13,
-  },
+  container: { flex: 1 },
+  listContent: { paddingHorizontal: SCREEN_PADDING, paddingBottom: spacing.xxl },
+  listHeader: { gap: spacing.xl, marginBottom: spacing.md },
+  separator: { height: spacing.sm },
+  weekCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  overline: { textTransform: 'uppercase', letterSpacing: 0.6 },
+  metricsRow: { flexDirection: 'row', alignItems: 'center' },
+  metric: { flex: 1, gap: 2 },
+  metricDivider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', marginHorizontal: spacing.lg },
+  weekFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: spacing.md, gap: spacing.sm },
+  footerLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  flexShrink: { flexShrink: 1 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sectionActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
 });

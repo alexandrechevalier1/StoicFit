@@ -1,6 +1,8 @@
-import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, NavigationContainer, type LinkingOptions } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import type { IconName } from '../components/ui/IconButton';
 import WorkoutsScreen from '../screens/WorkoutsScreen';
 import SeancesScreen from '../screens/SeancesScreen';
 import ExercisesScreen from '../screens/ExercisesScreen';
@@ -29,6 +31,22 @@ export type SeancesStackParamList = {
 export type ProfilStackParamList = {
   ProfileHome: undefined;
   Analytics: undefined;
+};
+
+const TAB_ICONS: Record<keyof RootTabParamList, { active: IconName; inactive: IconName }> = {
+  Seances: { active: 'barbell', inactive: 'barbell-outline' },
+  Nutrition: { active: 'nutrition', inactive: 'nutrition-outline' },
+  Profil: { active: 'person', inactive: 'person-outline' },
+};
+
+// Liens profonds : stoicfit://nutrition ouvre l'onglet Nutrition (utilisé par les widgets).
+const linking: LinkingOptions<RootTabParamList> = {
+  prefixes: ['stoicfit://'],
+  config: {
+    screens: {
+      Nutrition: 'nutrition',
+    },
+  },
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -72,18 +90,22 @@ export default function RootNavigator() {
   };
 
   return (
-    <NavigationContainer theme={navigationTheme}>
+    <NavigationContainer theme={navigationTheme} linking={linking}>
       <Tab.Navigator
-        screenOptions={{
+        screenOptions={({ route }) => ({
           headerShown: false,
-          tabBarStyle: { backgroundColor: colors.background, borderTopColor: colors.border, height: 60 },
+          tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border },
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: colors.subtleText,
-          tabBarIcon: () => null,
-          tabBarLabelPosition: 'beside-icon',
-          tabBarLabelStyle: { fontSize: 16, fontWeight: '400', marginBottom: -10 },
-          tabBarItemStyle: { alignItems: 'center', justifyContent: 'center' },
-        }}
+          tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? TAB_ICONS[route.name].active : TAB_ICONS[route.name].inactive}
+              size={size}
+              color={color}
+            />
+          ),
+        })}
       >
         <Tab.Screen
           name="Seances"

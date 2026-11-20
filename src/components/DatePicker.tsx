@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useThemeColors } from '../theme/useThemeColors';
 
 type Props = {
@@ -99,7 +100,7 @@ export default function DatePicker({ value, onChange }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Mois précédent"
         >
-          <Text style={[styles.navButtonText, { color: colors.primary }]}>‹</Text>
+          <Ionicons name="chevron-back" size={22} color={colors.primary} />
         </Pressable>
 
         <Text style={[styles.monthLabel, { color: colors.text }]}>
@@ -113,7 +114,7 @@ export default function DatePicker({ value, onChange }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Mois suivant"
         >
-          <Text style={[styles.navButtonText, { color: colors.primary }]}>›</Text>
+          <Ionicons name="chevron-forward" size={22} color={colors.primary} />
         </Pressable>
       </View>
 
@@ -153,7 +154,7 @@ export default function DatePicker({ value, onChange }: Props) {
               <Text
                 style={[
                   styles.cellText,
-                  { color: isSelected ? '#fff' : colors.text },
+                  { color: isSelected ? colors.onPrimary : colors.text },
                   !isSelected && isToday && { fontWeight: '700' },
                 ]}
               >
@@ -167,7 +168,7 @@ export default function DatePicker({ value, onChange }: Props) {
       <Pressable
         onPress={goToToday}
         hitSlop={8}
-        style={[styles.todayButton, { borderColor: colors.border }]}
+        style={[styles.todayButton, { backgroundColor: colors.primarySoft }]}
         accessibilityRole="button"
         accessibilityLabel="Sélectionner aujourd'hui"
       >
@@ -192,8 +193,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  navButtonText: { fontSize: 26, fontWeight: '600', lineHeight: 28 },
-  monthLabel: { fontSize: 16, fontWeight: '700' },
+  monthLabel: { fontSize: 16, fontWeight: '700', textTransform: 'capitalize' },
   weekRow: { flexDirection: 'row', marginBottom: 4 },
   weekDayLabel: {
     width: CELL_WIDTH,
@@ -215,8 +215,7 @@ const styles = StyleSheet.create({
   cellText: { fontSize: 15, fontWeight: '500' },
   todayButton: {
     alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginTop: 10,

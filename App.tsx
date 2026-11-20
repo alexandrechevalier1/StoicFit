@@ -1,11 +1,13 @@
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import { useNutritionStorage } from './src/hooks/useNutritionStorage';
 import { useWorkoutStorage } from './src/hooks/useWorkoutStorage';
 import { usePersistHydration } from './src/hooks/usePersistHydration';
 import { useProfileStore } from './src/store/profileStore';
 import { useThemeStore } from './src/store/themeStore';
+import { useNutritionWidgetSync } from './src/widgets/useNutritionWidgetSync';
 
 export default function App() {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
@@ -23,17 +25,19 @@ export default function App() {
     !isThemeHydrated;
   const error = workoutStorage.error ?? nutritionStorage.error;
 
+  useNutritionWidgetSync(!isLoading);
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>Chargement des donnees locales...</Text>
+        <Text style={styles.loadingText}>Chargement des données locales…</Text>
       </View>
     );
   }
 
   return (
-    <>
+    <SafeAreaProvider>
       <RootNavigator />
       {error ? (
         <View style={styles.errorBanner} pointerEvents="none">
@@ -41,7 +45,7 @@ export default function App() {
         </View>
       ) : null}
       <StatusBar style={isDarkMode ? 'light' : 'dark'} />
-    </>
+    </SafeAreaProvider>
   );
 }
 

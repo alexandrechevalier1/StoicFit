@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import NumericKeypad from './NumericKeypad';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../theme/useThemeColors';
+import { radius, spacing, typography } from '../theme/tokens';
+import { Button, IconButton, ProgressBar } from './ui';
 import { appendKeypadInput, parseDecimal, toDecimalInput } from '../utils/number';
 import type {
   DailyActivityLevel,
@@ -156,6 +160,7 @@ export default function ProfileOnboardingSheet({
   }, [visible, initialProfile]);
 
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const step = STEPS[stepIndex];
   const isLastStep = stepIndex === STEPS.length - 1;
 
@@ -212,54 +217,60 @@ export default function ProfileOnboardingSheet({
   const currentValue = draft[step.key] ?? '';
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={handleClose}
-    >
-      <Pressable style={[styles.overlay, { backgroundColor: colors.overlay }]} onPress={handleClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: colors.background }]} onPress={(e) => e.stopPropagation()}>
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={handleClose}>
+      <View style={[styles.overlay, { backgroundColor: colors.overlay }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} accessibilityLabel="Fermer" />
+        <View style={[styles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + spacing.lg }]}>
+          <View style={[styles.handle, { backgroundColor: colors.border }]} />
           <View style={styles.headerRow}>
             {stepIndex > 0 ? (
-              <Pressable onPress={handlePrevious} hitSlop={12}>
-                <Text style={[styles.headerButton, { color: colors.primary }]}>{'‹ Précédent'}</Text>
-              </Pressable>
+              <IconButton icon="chevron-back" label="Question précédente" tone="neutral" size={36} onPress={handlePrevious} />
             ) : (
               <View style={styles.headerSpacer} />
             )}
-            <Text style={[styles.progress, { color: colors.subtleText }]}>
-              {stepIndex + 1} / {STEPS.length}
-            </Text>
-            <Pressable onPress={handleClose} hitSlop={12}>
-              <Text style={[styles.headerButton, { color: colors.primary }]}>{'✕'}</Text>
-            </Pressable>
+            <View style={styles.progressBlock}>
+              <ProgressBar progress={(stepIndex + 1) / STEPS.length} color={colors.primary} height={6} />
+              <Text style={[typography.caption, { color: colors.subtleText }]}>
+                Question {stepIndex + 1} sur {STEPS.length}
+              </Text>
+            </View>
+            <IconButton icon="close" label="Fermer" tone="neutral" size={36} onPress={handleClose} />
           </View>
 
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={[styles.question, { color: colors.text }]}>{step.question}</Text>
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <Text style={[typography.title, { color: colors.text }]}>{step.question}</Text>
 
             {step.type === 'choice' ? (
               <View style={styles.optionsContainer}>
-                {step.options.map((option) => (
-                  <Pressable
-                    key={option.value}
-                    style={[styles.optionButton, { borderColor: colors.primary }]}
-                    onPress={() => handleChoiceSelect(option.value)}
-                  >
-                    <Text style={[styles.optionText, { color: colors.primary }]}>{option.label}</Text>
-                  </Pressable>
-                ))}
+                {step.options.map((option) => {
+                  const isSelected = draft[step.key] === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      onPress={() => handleChoiceSelect(option.value)}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.optionButton,
+                        { backgroundColor: isSelected ? colors.primarySoft : colors.cardMuted },
+                        isSelected && { borderColor: colors.primary },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={[typography.bodyStrong, styles.flex, { color: colors.text }]}>{option.label}</Text>
+                      <Ionicons
+                        name={isSelected ? 'checkmark-circle' : 'chevron-forward'}
+                        size={20}
+                        color={isSelected ? colors.primary : colors.subtleText}
+                      />
+                    </Pressable>
+                  );
+                })}
               </View>
             ) : (
               <>
                 <View style={styles.counterRow}>
                   <Text style={[styles.counterValue, { color: colors.text }]}>{currentValue || '0'}</Text>
-                  <Text style={[styles.counterUnit, { color: colors.subtleText }]}>{step.unit}</Text>
+                  <Text style={[typography.headline, { color: colors.subtleText }]}>{step.unit}</Text>
                 </View>
                 <NumericKeypad
                   value={currentValue}
@@ -282,73 +293,49 @@ export default function ProfileOnboardingSheet({
                   }
                 />
 
-                <Pressable style={[styles.nextButton, { backgroundColor: colors.primary }]} onPress={handleNumberNext}>
-                  <Text style={styles.nextButtonText}>
-                    {isLastStep ? 'Terminer' : 'Suivant'}
-                  </Text>
-                </Pressable>
+                <Button
+                  label={isLastStep ? 'Terminer' : 'Suivant'}
+                  icon={isLastStep ? 'checkmark' : undefined}
+                  onPress={handleNumberNext}
+                />
 
-                {step.optional && (
-                  <Pressable style={styles.skipButton} onPress={() => handleNumberNext()}>
-                    <Text style={[styles.skipButtonText, { color: colors.subtleText }]}>Passer cette question</Text>
-                  </Pressable>
-                )}
+                {step.optional ? (
+                  <Button label="Passer cette question" variant="plain" size="sm" onPress={handleNumberNext} />
+                ) : null}
               </>
             )}
           </ScrollView>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  flex: { flex: 1 },
+  overlay: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
-    height: '75%',
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    height: '82%',
+    borderTopLeftRadius: radius.lg + 8,
+    borderTopRightRadius: radius.lg + 8,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  headerButton: { fontSize: 16, color: '#007AFF', fontWeight: '600' },
-  headerSpacer: { width: 80 },
-  progress: { fontSize: 14, color: '#888', fontWeight: '600' },
-  scrollContent: { paddingBottom: 24 },
-  question: { fontSize: 22, fontWeight: 'bold', marginBottom: 20 },
-  optionsContainer: { gap: 12 },
+  handle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, marginBottom: spacing.sm },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg },
+  headerSpacer: { width: 36 },
+  progressBlock: { flex: 1, alignItems: 'center', gap: spacing.xs },
+  scrollContent: { paddingBottom: spacing.lg, gap: spacing.lg },
+  optionsContainer: { gap: spacing.sm },
   optionButton: {
-    borderWidth: 1.5,
-    borderColor: '#007AFF',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  optionText: { fontSize: 16, fontWeight: '600', color: '#007AFF' },
-  counterRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 16,
-  },
-  counterValue: { fontSize: 40, fontWeight: 'bold' },
-  counterUnit: { fontSize: 18, color: '#888' },
-  nextButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 12,
-    paddingVertical: 14,
     alignItems: 'center',
-    marginTop: 16,
+    minHeight: 56,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
-  nextButtonText: { fontSize: 16, color: '#fff', fontWeight: '600' },
-  skipButton: { alignItems: 'center', marginTop: 12 },
-  skipButtonText: { fontSize: 14, color: '#888' },
+  counterRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', gap: spacing.sm },
+  counterValue: { fontSize: 48, fontWeight: '800', letterSpacing: -1, fontVariant: ['tabular-nums'] },
 });

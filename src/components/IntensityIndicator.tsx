@@ -1,6 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SetIntensity } from '../models';
 import { useThemeColors } from '../theme/useThemeColors';
+import type { ThemeColors } from '../theme/colors';
+import { radius, spacing, typography } from '../theme/tokens';
 
 export const SET_INTENSITY_ORDER: SetIntensity[] = ['faible', 'modere', 'intense'];
 
@@ -10,89 +12,71 @@ const INTENSITY_LABELS: Record<SetIntensity, string> = {
   intense: 'Intense',
 };
 
-const INTENSITY_COLORS: Record<SetIntensity, string> = {
-  faible: '#0A84FF',
-  modere: '#34C759',
-  intense: '#FF3B30',
-};
+// Couleurs sémantiques du thème : vert → orange → rouge, lisibles en clair comme en sombre.
+const intensityColor = (colors: ThemeColors, intensity: SetIntensity) =>
+  intensity === 'intense' ? colors.danger : intensity === 'modere' ? colors.warning : colors.success;
 
-const ACTIVE_BAR_COUNT: Record<SetIntensity, number> = {
-  faible: 1,
-  modere: 2,
-  intense: 3,
-};
-
-const BAR_HEIGHTS = [8, 12, 16];
+const ACTIVE_BAR_COUNT: Record<SetIntensity, number> = { faible: 1, modere: 2, intense: 3 };
+const BAR_HEIGHTS = [6, 10, 14];
 
 type Props = {
   value?: SetIntensity;
   onChange: (next: SetIntensity) => void;
 };
 
+/** Pastille cliquable qui fait défiler l'intensité ressentie de la série. */
 export default function IntensityIndicator({ value, onChange }: Props) {
   const colors = useThemeColors();
   const current: SetIntensity = value ?? 'faible';
-  const activeColor = INTENSITY_COLORS[current];
+  const activeColor = intensityColor(colors, current);
   const activeCount = ACTIVE_BAR_COUNT[current];
 
   const handlePress = () => {
     const currentIndex = SET_INTENSITY_ORDER.indexOf(current);
-    const next = SET_INTENSITY_ORDER[(currentIndex + 1) % SET_INTENSITY_ORDER.length];
-    onChange(next);
+    onChange(SET_INTENSITY_ORDER[(currentIndex + 1) % SET_INTENSITY_ORDER.length]);
   };
 
   return (
     <Pressable
       onPress={handlePress}
       hitSlop={8}
-      style={styles.container}
+      style={({ pressed }) => [
+        styles.container,
+        { backgroundColor: colors.cardMuted },
+        pressed && { opacity: 0.6 },
+      ]}
       accessibilityRole="button"
       accessibilityLabel={`Intensité : ${INTENSITY_LABELS[current]}`}
       accessibilityHint="Appuyer pour changer l'intensité de la série"
     >
       <View style={styles.bars}>
-        {BAR_HEIGHTS.map((height, index) => {
-          const isActive = index < activeCount;
-          return (
-            <View
-              key={height}
-              style={[
-                styles.bar,
-                {
-                  height,
-                  backgroundColor: isActive ? activeColor : colors.subtleText,
-                },
-                !isActive && styles.inactiveBar,
-              ]}
-            />
-          );
-        })}
+        {BAR_HEIGHTS.map((height, index) => (
+          <View
+            key={height}
+            style={[
+              styles.bar,
+              { height, backgroundColor: index < activeCount ? activeColor : colors.border },
+            ]}
+          />
+        ))}
       </View>
-      <Text style={[styles.label, { color: activeColor }]}>{INTENSITY_LABELS[current]}</Text>
+      <Text style={[typography.captionStrong, styles.label, { color: activeColor }]}>
+        {INTENSITY_LABELS[current]}
+      </Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-  },
-  bars: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 2,
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radius.pill,
   },
-  bar: {
-    width: 4,
-    borderRadius: 1.5,
-  },
-  inactiveBar: {
-    opacity: 0.35,
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
+  bars: { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
+  bar: { width: 4, borderRadius: 2 },
+  label: { fontSize: 12, minWidth: 48 },
 });
