@@ -14,6 +14,8 @@ type Props = {
   imageUri?: string;
   fallbackIcon: IconName;
   isEditing: boolean;
+  /** Déjà fait (ex. exercice réalisé aujourd'hui) : carte inversée + coche. */
+  isDone?: boolean;
   namePlaceholder: string;
   notePlaceholder: string;
   onPress: () => void;
@@ -35,6 +37,7 @@ export default function EditableItemRow({
   imageUri,
   fallbackIcon,
   isEditing,
+  isDone = false,
   namePlaceholder,
   notePlaceholder,
   onPress,
@@ -46,15 +49,20 @@ export default function EditableItemRow({
   const colors = useThemeColors();
   const secondary = [note?.trim(), meta].filter(Boolean).join(' · ');
   const inputStyle = [styles.input, { backgroundColor: colors.cardMuted, color: colors.text }];
+  // En édition, on garde la carte normale pour que les champs restent lisibles.
+  const inverted = isDone && !isEditing;
+  const textColor = inverted ? colors.onInverse : colors.text;
+  const subtleColor = inverted ? colors.onInverseSubtle : colors.subtleText;
 
   return (
     <Pressable
       onPress={onPress}
       disabled={isEditing}
       accessibilityRole={isEditing ? undefined : 'button'}
+      accessibilityLabel={isEditing ? undefined : [name.trim() || namePlaceholder, inverted ? 'fait' : null, secondary].filter(Boolean).join(', ')}
       style={({ pressed }) => [
         styles.card,
-        { backgroundColor: colors.card },
+        { backgroundColor: inverted ? colors.inverseCard : colors.card },
         pressed && !isEditing && { opacity: 0.7 },
       ]}
     >
@@ -80,11 +88,11 @@ export default function EditableItemRow({
           </>
         ) : (
           <>
-            <Text style={[typography.headline, { color: colors.text }]} numberOfLines={1}>
+            <Text style={[typography.headline, { color: textColor }]} numberOfLines={1}>
               {name.trim() || namePlaceholder}
             </Text>
             {secondary ? (
-              <Text style={[typography.caption, { color: colors.subtleText }]} numberOfLines={1}>
+              <Text style={[typography.caption, { color: subtleColor }]} numberOfLines={1}>
                 {secondary}
               </Text>
             ) : null}
@@ -95,7 +103,10 @@ export default function EditableItemRow({
       {isEditing ? (
         <IconButton icon="trash-outline" label={`Supprimer ${name}`} tone="danger" onPress={onDelete} />
       ) : (
-        <Ionicons name="chevron-forward" size={18} color={colors.subtleText} />
+        <View style={styles.trailing}>
+          {inverted ? <Ionicons name="checkmark-circle" size={22} color={colors.onInverse} /> : null}
+          <Ionicons name="chevron-forward" size={18} color={subtleColor} />
+        </View>
       )}
     </Pressable>
   );
@@ -110,6 +121,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
   },
   body: { flex: 1, gap: spacing.xs },
+  trailing: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   input: {
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,

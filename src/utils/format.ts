@@ -25,3 +25,18 @@ export function formatRelativeDay(iso: string | undefined): string {
   if (diffDays === 1) return 'Hier';
   return date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 }
+
+/** Charge d'une série : « 100 kg », « PDC », « PDC + 10 kg ». */
+export function formatLoad(weightKg: number, bodyweight?: boolean): string {
+  if (bodyweight) return weightKg > 0 ? `PDC + ${formatWeight(weightKg)} kg` : 'PDC';
+  return `${formatWeight(weightKg)} kg`;
+}
+
+/** Durée : « 45 min », « 1 h 05 », « 2 h ». */
+export function formatDuration(totalMinutes: number): string {
+  const minutes = Math.max(0, Math.round(totalMinutes));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest > 0 ? `${hours} h ${String(rest).padStart(2, '0')}` : `${hours} h`;
+}

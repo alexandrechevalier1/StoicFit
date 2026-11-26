@@ -6,14 +6,14 @@ import { radius, spacing, typography } from '../theme/tokens';
 
 export const SET_INTENSITY_ORDER: SetIntensity[] = ['faible', 'modere', 'intense'];
 
-const INTENSITY_LABELS: Record<SetIntensity, string> = {
+export const INTENSITY_LABELS: Record<SetIntensity, string> = {
   faible: 'Faible',
   modere: 'Modéré',
   intense: 'Intense',
 };
 
 // Couleurs sémantiques du thème : vert → orange → rouge, lisibles en clair comme en sombre.
-const intensityColor = (colors: ThemeColors, intensity: SetIntensity) =>
+export const intensityColor = (colors: ThemeColors, intensity: SetIntensity) =>
   intensity === 'intense' ? colors.danger : intensity === 'modere' ? colors.warning : colors.success;
 
 const ACTIVE_BAR_COUNT: Record<SetIntensity, number> = { faible: 1, modere: 2, intense: 3 };

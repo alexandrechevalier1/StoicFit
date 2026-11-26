@@ -17,6 +17,10 @@ export interface ThemeColors {
   success: string;
   warning: string;
   overlay: string;
+  /** Carte « inversée » (exercice déjà fait) : sombre en clair, claire en sombre. */
+  inverseCard: string;
+  onInverse: string;
+  onInverseSubtle: string;
   /** Couleurs de données nutrition : une teinte fixe par macro, partout dans l'app. */
   protein: string;
   carbs: string;
@@ -40,6 +44,9 @@ export const LIGHT_COLORS: ThemeColors = {
   success: '#3C9A5F',
   warning: '#D08A2E',
   overlay: 'rgba(0,0,0,0.4)',
+  inverseCard: '#1E2120',
+  onInverse: '#F4F3EF',
+  onInverseSubtle: '#A9AEAB',
   protein: '#B8643A',
   carbs: '#B88A1F',
   fat: '#7468A8',
@@ -60,6 +67,9 @@ export const DARK_COLORS: ThemeColors = {
   success: '#5DBB7E',
   warning: '#E3A452',
   overlay: 'rgba(0,0,0,0.6)',
+  inverseCard: '#F1F2EF',
+  onInverse: '#16181A',
+  onInverseSubtle: '#5E6461',
   protein: '#E08E62',
   carbs: '#D9B44E',
   fat: '#A79BDB',

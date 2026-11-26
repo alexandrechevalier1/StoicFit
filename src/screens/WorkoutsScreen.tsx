@@ -12,6 +12,8 @@ import { pickSquareImage } from '../utils/pickImage';
 import { useWorkoutHistory } from '../hooks/useWorkoutHistory';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 import { Button, EditableItemRow, EmptyState, IconButton, ScreenHeader } from '../components/ui';
+import WorkoutCalendar from '../components/WorkoutCalendar';
+import SeanceDaySheet from '../components/SeanceDaySheet';
 
 type WeekStats = {
   thisWeekSeanceCount: number;
@@ -85,8 +87,22 @@ export default function WorkoutsScreen({ navigation }: Props) {
   const updateProgram = useProgramStore((state) => state.updateProgram);
   const colors = useThemeColors();
   const [isEditing, setIsEditing] = useState(false);
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
 
   const stats = useMemo(() => computeWeekStats(history), [history]);
+  // Séances du jour choisi dans le calendrier, de la plus ancienne à la plus récente.
+  const selectedDaySeances = useMemo(
+    () => (selectedDateKey ? history.filter((seance) => seance.dateKey === selectedDateKey).reverse() : []),
+    [history, selectedDateKey]
+  );
+
+  const seanceTemplateExists = (seance: CompletedSeance) =>
+    programs.some((p) => p.id === seance.programId && p.seances.some((s) => s.id === seance.seanceId));
+
+  const handleOpenSeance = (seance: CompletedSeance) => {
+    setSelectedDateKey(null);
+    navigation.navigate('ExercisesList', { programId: seance.programId, seanceId: seance.seanceId });
+  };
 
   const confirmRemoveProgram = (program: Program) => {
     const seanceCount = program.seances.length;
@@ -166,7 +182,10 @@ export default function WorkoutsScreen({ navigation }: Props) {
   const listHeader = (
     <View style={styles.listHeader}>
       {weekCard}
-      <View style={styles.sectionHeader}>
+      {history.length > 0 ? (
+        <WorkoutCalendar history={history} selectedDateKey={selectedDateKey} onSelectDay={setSelectedDateKey} />
+      ) : null}
+      <View style={[styles.sectionHeader, styles.sectionHeaderSpacing]}>
         <Text style={[typography.title, { color: colors.text }]}>Programmes</Text>
         {programs.length > 0 ? (
           <View style={styles.sectionActions}>
@@ -221,6 +240,14 @@ export default function WorkoutsScreen({ navigation }: Props) {
           />
         )}
       />
+
+      <SeanceDaySheet
+        dateKey={selectedDateKey}
+        seances={selectedDaySeances}
+        onClose={() => setSelectedDateKey(null)}
+        canOpenSeance={seanceTemplateExists}
+        onOpenSeance={handleOpenSeance}
+      />
     </View>
   );
 }
@@ -228,7 +255,8 @@ export default function WorkoutsScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   listContent: { paddingHorizontal: SCREEN_PADDING, paddingBottom: spacing.xxl },
-  listHeader: { gap: spacing.xl, marginBottom: spacing.md },
+  listHeader: { gap: spacing.md, marginBottom: spacing.md },
+  sectionHeaderSpacing: { marginTop: spacing.md },
   separator: { height: spacing.sm },
   weekCard: { borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
   overline: { textTransform: 'uppercase', letterSpacing: 0.6 },

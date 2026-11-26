@@ -7,8 +7,10 @@ import { SCREEN_PADDING, spacing } from '../theme/tokens';
 import RestTimerButton from '../components/RestTimerButton';
 import type { SeancesStackParamList } from '../navigation/RootNavigator';
 import type { Exercise, SetLog } from '../models';
-import { confirmDestructive, keptHistoryNote } from '../utils/confirm';
-import { formatWeight } from '../utils/format';
+import { confirmDestructive, keptHistoryNote, pluralize } from '../utils/confirm';
+import { formatLoad } from '../utils/format';
+import { getLocalDateKey } from '../utils/nutritionDate';
+import { getSetLogDateKey } from '../utils/workoutHistory';
 import { pickSquareImage } from '../utils/pickImage';
 import { Button, EditableItemRow, EmptyState, IconButton, ScreenHeader } from '../components/ui';
 
@@ -16,12 +18,7 @@ type Props = NativeStackScreenProps<SeancesStackParamList, 'ExercisesList'>;
 
 function describeLastSet(log: SetLog | undefined): string {
   if (!log) return 'Aucune série';
-  const load = log.bodyweight
-    ? log.weightKg > 0
-      ? `PDC + ${formatWeight(log.weightKg)} kg`
-      : 'PDC'
-    : `${formatWeight(log.weightKg)} kg`;
-  return `Dernière : ${log.reps} × ${load}`;
+  return `Dernière : ${log.reps} × ${formatLoad(log.weightKg, log.bodyweight)}`;
 }
 
 export default function ExercisesScreen({ route, navigation }: Props) {
@@ -36,18 +33,29 @@ export default function ExercisesScreen({ route, navigation }: Props) {
 
   const exercises = seance?.exercises ?? [];
 
-  // Dernière série enregistrée par exercice, pour la ligne secondaire.
-  const lastSetByExercise = useMemo(() => {
-    const map = new Map<string, SetLog>();
+  // Dernière série par exercice (ligne secondaire) et séries du jour
+  // (un exercice avec au moins une série aujourd'hui est « fait »).
+  const { lastSetByExercise, todaySetCountByExercise } = useMemo(() => {
+    const todayKey = getLocalDateKey();
+    const lastSet = new Map<string, SetLog>();
+    const todayCount = new Map<string, number>();
     setLogs.forEach((log) => {
       if (log.seanceId !== seanceId) return;
-      const current = map.get(log.exerciseId);
+      const current = lastSet.get(log.exerciseId);
       if (!current || new Date(log.date).getTime() >= new Date(current.date).getTime()) {
-        map.set(log.exerciseId, log);
+        lastSet.set(log.exerciseId, log);
+      }
+      if (getSetLogDateKey(log) === todayKey) {
+        todayCount.set(log.exerciseId, (todayCount.get(log.exerciseId) ?? 0) + 1);
       }
     });
-    return map;
+    return { lastSetByExercise: lastSet, todaySetCountByExercise: todayCount };
   }, [setLogs, seanceId]);
+
+  const doneCount = exercises.filter((exercise) => todaySetCountByExercise.has(exercise.id)).length;
+  const subtitle = [program?.name, doneCount > 0 ? `${doneCount} sur ${exercises.length} fait${doneCount > 1 ? 's' : ''}` : null]
+    .filter(Boolean)
+    .join(' · ');
 
   const confirmRemoveExercise = (exercise: Exercise) => {
     const setCount = setLogs.filter((log) => log.exerciseId === exercise.id).length;
@@ -71,7 +79,7 @@ export default function ExercisesScreen({ route, navigation }: Props) {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader
         title={seance?.name || 'Séance'}
-        subtitle={program?.name}
+        subtitle={subtitle}
         onBack={() => navigation.goBack()}
         actions={
           <>
@@ -105,23 +113,31 @@ export default function ExercisesScreen({ route, navigation }: Props) {
             onAction={handleAddExercise}
           />
         }
-        renderItem={({ item }) => (
-          <EditableItemRow
-            name={item.name}
-            note={item.subtitle}
-            meta={describeLastSet(lastSetByExercise.get(item.id))}
-            imageUri={item.imageUri}
-            fallbackIcon="fitness-outline"
-            isEditing={isEditing}
-            namePlaceholder="Nom de l'exercice"
-            notePlaceholder="Note (ex : prise serrée)"
-            onPress={() => navigation.navigate('ExerciseDetail', { programId, seanceId, exerciseId: item.id })}
-            onChangeName={(text) => updateExercise(programId, seanceId, item.id, { name: text })}
-            onChangeNote={(text) => updateExercise(programId, seanceId, item.id, { subtitle: text })}
-            onPickImage={() => handlePickImage(item.id)}
-            onDelete={() => confirmRemoveExercise(item)}
-          />
-        )}
+        renderItem={({ item }) => {
+          const todaySetCount = todaySetCountByExercise.get(item.id) ?? 0;
+          return (
+            <EditableItemRow
+              name={item.name}
+              note={item.subtitle}
+              meta={
+                todaySetCount > 0
+                  ? `${pluralize(todaySetCount, 'série')} aujourd'hui`
+                  : describeLastSet(lastSetByExercise.get(item.id))
+              }
+              imageUri={item.imageUri}
+              fallbackIcon="fitness-outline"
+              isEditing={isEditing}
+              isDone={todaySetCount > 0}
+              namePlaceholder="Nom de l'exercice"
+              notePlaceholder="Note (ex : prise serrée)"
+              onPress={() => navigation.navigate('ExerciseDetail', { programId, seanceId, exerciseId: item.id })}
+              onChangeName={(text) => updateExercise(programId, seanceId, item.id, { name: text })}
+              onChangeNote={(text) => updateExercise(programId, seanceId, item.id, { subtitle: text })}
+              onPickImage={() => handlePickImage(item.id)}
+              onDelete={() => confirmRemoveExercise(item)}
+            />
+          );
+        }}
       />
     </View>
   );
