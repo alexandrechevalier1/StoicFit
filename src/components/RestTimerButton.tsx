@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../theme/useThemeColors';
 import { radius, spacing, typography } from '../theme/tokens';
 import { Button, IconButton } from './ui';
+import { startClockTimer } from '../../modules/clock-timer';
 
 const PRESETS_SECONDS = [30, 60, 90, 120];
 
@@ -14,16 +15,32 @@ function formatSeconds(totalSeconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
+const CLOCK_MESSAGE = 'StoicFit · Récupération';
+
 export default function RestTimerButton() {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const [isMenuVisible, setIsMenuVisible] = useState(false);
-  const [remainingSeconds, setRemainingSeconds] = useState(PRESETS_SECONDS[0]);
-  const [isRunning, setIsRunning] = useState(false);
+  const [selectedSeconds, setSelectedSeconds] = useState(PRESETS_SECONDS[0]);
+  // Le décompte repose sur une heure de fin : il reste juste même si l'app
+  // passe en arrière-plan (les timers JS y sont suspendus).
+  const [endAt, setEndAt] = useState<number | null>(null);
+  const [clockEndAt, setClockEndAt] = useState<number | null>(null);
+  const [isFinished, setIsFinished] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const slideAnim = useRef(new Animated.Value(-260)).current;
+
+  const isRunning = endAt != null;
+  const remainingSeconds = isRunning
+    ? Math.max(0, Math.ceil((endAt - now) / 1000))
+    : isFinished
+      ? 0
+      : selectedSeconds;
+  const isClockRunning = clockEndAt != null && clockEndAt > now;
 
   useEffect(() => {
     if (!isMenuVisible) return;
+    setNow(Date.now());
     slideAnim.setValue(-260);
     Animated.timing(slideAnim, {
       toValue: 0,
@@ -33,32 +50,44 @@ export default function RestTimerButton() {
   }, [isMenuVisible, slideAnim]);
 
   useEffect(() => {
-    if (!isRunning) return;
-    if (remainingSeconds <= 0) {
-      setIsRunning(false);
-      Vibration.vibrate(400);
-      return;
-    }
-    const timeout = setTimeout(() => setRemainingSeconds((s) => s - 1), 1000);
-    return () => clearTimeout(timeout);
-  }, [isRunning, remainingSeconds]);
+    if (!isRunning && !isClockRunning) return;
+    const interval = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(interval);
+  }, [isRunning, isClockRunning]);
+
+  useEffect(() => {
+    if (endAt == null || now < endAt) return;
+    setEndAt(null);
+    setIsFinished(true);
+    // L'Horloge sonne déjà : on ne vibre que si elle n'a pas pu être lancée.
+    if (clockEndAt == null) Vibration.vibrate(400);
+  }, [endAt, now, clockEndAt]);
 
   const handleClose = () => setIsMenuVisible(false);
 
-  const handleSelectPreset = (seconds: number) => {
-    setRemainingSeconds(seconds);
-    setIsRunning(true);
+  const start = (seconds: number) => {
+    const startedAt = Date.now();
+    setSelectedSeconds(seconds);
+    setIsFinished(false);
+    setNow(startedAt);
+    setEndAt(startedAt + seconds * 1000);
+    setClockEndAt(startClockTimer(seconds, CLOCK_MESSAGE) ? startedAt + seconds * 1000 : null);
   };
 
-  const handleToggleRunning = () => {
-    if (remainingSeconds <= 0) return;
-    setIsRunning((v) => !v);
+  const handleStop = () => {
+    setEndAt(null);
+    setIsFinished(false);
   };
 
-  const handleReset = () => {
-    setIsRunning(false);
-    setRemainingSeconds(PRESETS_SECONDS[0]);
-  };
+  const statusMessage = isRunning
+    ? isClockRunning
+      ? "Lancé aussi dans l'Horloge : il sonnera même si tu quittes l'app."
+      : null
+    : isClockRunning
+      ? "Le minuteur de l'Horloge tourne encore : arrête-le depuis sa notification."
+      : isFinished
+        ? 'Récupération terminée.'
+        : null;
 
   return (
     <>
@@ -95,9 +124,14 @@ export default function RestTimerButton() {
                 <IconButton icon="close" label="Fermer" tone="neutral" size={36} onPress={handleClose} />
               </View>
 
-              <Text style={[styles.countdown, { color: remainingSeconds <= 0 ? colors.success : colors.text }]}>
-                {formatSeconds(Math.max(0, remainingSeconds))}
+              <Text style={[styles.countdown, { color: isFinished ? colors.success : colors.text }]}>
+                {formatSeconds(remainingSeconds)}
               </Text>
+              {statusMessage ? (
+                <Text style={[typography.caption, styles.status, { color: colors.subtleText }]}>
+                  {statusMessage}
+                </Text>
+              ) : null}
 
               <View style={styles.presetsRow}>
                 {PRESETS_SECONDS.map((seconds) => (
@@ -108,7 +142,7 @@ export default function RestTimerButton() {
                       { backgroundColor: colors.cardMuted },
                       pressed && { opacity: 0.6 },
                     ]}
-                    onPress={() => handleSelectPreset(seconds)}
+                    onPress={() => start(seconds)}
                     accessibilityRole="button"
                     accessibilityLabel={`Lancer ${seconds} secondes`}
                   >
@@ -121,14 +155,11 @@ export default function RestTimerButton() {
 
               <View style={styles.controlsRow}>
                 <View style={styles.flex}>
-                  <Button
-                    label={isRunning ? 'Pause' : 'Démarrer'}
-                    icon={isRunning ? 'pause' : 'play'}
-                    onPress={handleToggleRunning}
-                  />
-                </View>
-                <View style={styles.flex}>
-                  <Button label="Réinitialiser" icon="refresh" variant="tinted" onPress={handleReset} />
+                  {isRunning ? (
+                    <Button label="Arrêter" icon="stop" variant="tinted" tone="danger" onPress={handleStop} />
+                  ) : (
+                    <Button label="Démarrer" icon="play" onPress={() => start(selectedSeconds)} />
+                  )}
                 </View>
               </View>
             </Pressable>
@@ -171,6 +202,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontVariant: ['tabular-nums'],
   },
+  status: { textAlign: 'center', marginTop: -spacing.sm },
   presetsRow: { flexDirection: 'row', gap: spacing.sm },
   presetButton: { flex: 1, minHeight: 40, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   controlsRow: { flexDirection: 'row', gap: spacing.sm },
